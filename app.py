@@ -110,7 +110,8 @@ class LibreriaApp(ctk.CTk):
         self._load_footer_logo()
 
     def _load_icon(self, parent):
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "SP White.png")
+        #path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "imagenes/SP White.png")
+        path = recurso("imagenes/SP White.png")
         if os.path.exists(path):
             try:
                 img = Image.open(path)
@@ -128,7 +129,8 @@ class LibreriaApp(ctk.CTk):
     def _load_footer_logo(self):
         container = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         container.pack(side="bottom", pady=14)
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "SP White.png")
+        #path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "imagenes/SP White.png")
+        path = recurso("imagenes/SP White.png")
         if os.path.exists(path):
             try:
                 img = Image.open(path)

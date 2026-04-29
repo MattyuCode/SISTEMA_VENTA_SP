@@ -1,0 +1,17 @@
+node_modules
+whatsapp-session*.json
+#package-lock.json
+downloaded-media/
+.wwebjs_auth
+.wwebjs_cache/
+
+# .vscode/
+# .wwebjs_auth/
+# .wwebjs_cache/
+# app.js
+# config/
+# index.html
+# node_modules/
+# nodemon.json
+# package-lock.json
+# package.json.wwebjs_cache/

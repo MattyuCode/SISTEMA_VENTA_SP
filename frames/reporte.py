@@ -42,9 +42,15 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
     fiados        = lista de dicts {fecha, cliente, total, estado, resumen}
     fecha         = str "YYYY-MM-DD"
     """
+
+    carpeta_base = os.path.join(os.path.expanduser("~"), "Documents", "SISTEMA_SP", "Reportes")
+    os.makedirs(carpeta_base, exist_ok=True)
+
+
     nombre_archivo = f"reporte_{fecha}.pdf"
-    ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "..", nombre_archivo)
+    #ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+    #                    "..", nombre_archivo)
+    ruta = os.path.join(carpeta_base, nombre_archivo)
     ruta = os.path.normpath(ruta)
 
     doc = SimpleDocTemplate(ruta, pagesize=letter,

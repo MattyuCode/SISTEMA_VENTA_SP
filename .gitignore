@@ -1,0 +1,8 @@
+node_modules/
+libreria.db
+*.exe
+build/
+APP_FINAL/API_WhatsApp/node_modules/
+dist/
+__pycache__/
+*.pyc
