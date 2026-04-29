@@ -1,6 +1,6 @@
 node_modules/
 libreria.db
-*.exe
+Install_SISTEMA_SP.exe
 build/
 APP_FINAL/API_WhatsApp/node_modules/
 dist/
