@@ -10,6 +10,8 @@ from frames.inventario     import InventarioFrame
 from frames.nuevo_producto import NuevoProductoFrame
 from frames.vender         import VenderFrame
 from frames.historial      import HistorialFrame
+from frames.observaciones  import ObservacionesFrame
+from frames.fiados         import FiadosFrame
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
@@ -36,10 +38,24 @@ class LibreriaApp(ctk.CTk):
         self.geometry("1200x680")
         self.resizable(True, True)
         self.configure(fg_color=GRAY_BG)
+        self.after(10, self._dark_titlebar)
         apply_treeview_style()
 
         self._build_sidebar()
         self._build_content()
+
+    def _dark_titlebar(self):
+        try:
+            from ctypes import windll, byref, sizeof, c_int
+            self.update()
+            HWND = windll.user32.GetParent(self.winfo_id())
+            # DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            windll.dwmapi.DwmSetWindowAttribute(
+                HWND, 20, byref(c_int(2)), sizeof(c_int))
+            # forzar redibujado
+            windll.user32.SetWindowPos(HWND, 0, 0, 0, 0, 0, 0x0027)
+        except Exception:
+            pass
 
     # ── Sidebar ───────────────────────────────────────────────────────────────
     def _build_sidebar(self):
@@ -71,11 +87,13 @@ class LibreriaApp(ctk.CTk):
 
         self.nav_buttons = {}
         items = [
-            ("🏠  Inicio",         "inicio"),
-            ("📦  Inventario",     "inventario"),
-            ("➕  Nuevo producto", "nuevo_producto"),
-            ("🛒  Vender",         "vender"),
-            ("📋  Historial",      "historial"),
+            ("🏠  Inicio",           "inicio"),
+            ("📦  Inventario",       "inventario"),
+            ("➕  Nuevo producto",   "nuevo_producto"),
+            ("🛒  Vender",           "vender"),
+            ("💳  Fiados",           "fiados"),
+            ("📋  Historial",        "historial"),
+            ("📝  Observaciones",    "observaciones"),
         ]
         for label, key in items:
             btn = ctk.CTkButton(
@@ -130,7 +148,7 @@ class LibreriaApp(ctk.CTk):
         self.content = ctk.CTkFrame(self, corner_radius=0, fg_color=GRAY_BG)
         self.content.pack(side="right", fill="both", expand=True)
 
-        topbar = ctk.CTkFrame(self.content, height=52, corner_radius=0, fg_color=NAVY)
+        topbar = ctk.CTkFrame(self.content, height=52, corner_radius=0, fg_color=WHITE)
         topbar.pack(fill="x")
         topbar.pack_propagate(False)
 
@@ -139,7 +157,7 @@ class LibreriaApp(ctk.CTk):
                      fg_color=ORANGE).pack(side="left", fill="y")
 
         self.topbar_title = ctk.CTkLabel(topbar, text="Nueva venta",
-            font=ctk.CTkFont(size=17, weight="bold"), text_color="#ffffff")
+            font=ctk.CTkFont(size=17, weight="bold"), text_color=NAVY)
         self.topbar_title.pack(side="left", padx=16)
 
         ctk.CTkLabel(topbar,
@@ -154,7 +172,9 @@ class LibreriaApp(ctk.CTk):
             "inventario":     InventarioFrame(self.inner, self),
             "nuevo_producto": NuevoProductoFrame(self.inner, self),
             "vender":         VenderFrame(self.inner, self),
+            "fiados":         FiadosFrame(self.inner, self),
             "historial":      HistorialFrame(self.inner, self),
+            "observaciones":  ObservacionesFrame(self.inner, self),
         }
         self.show_frame("vender")
 
@@ -165,7 +185,9 @@ class LibreriaApp(ctk.CTk):
             "inventario":     "Inventario",
             "nuevo_producto": "Registrar nuevo producto",
             "vender":         "Nueva venta",
+            "fiados":         "Fiados / Deudas de clientes",
             "historial":      "Historial de ventas",
+            "observaciones":  "Observaciones del día",
         }
         for f in self.frames.values():
             f.pack_forget()

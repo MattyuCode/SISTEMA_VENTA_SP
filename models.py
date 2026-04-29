@@ -54,3 +54,34 @@ class DetalleVenta(Base):
     subtotal    = Column(Float,   nullable=False)
     venta       = relationship("Venta",    back_populates="detalles")
     producto    = relationship("Producto", back_populates="detalles")
+
+class Observacion(Base):
+    __tablename__ = "observaciones"
+    id       = Column(Integer,     primary_key=True, autoincrement=True)
+    fecha    = Column(String(30),  nullable=False)
+    monto    = Column(Float,       nullable=False)
+    concepto = Column(String(255), nullable=False)
+
+
+
+class Fiado(Base):
+    __tablename__ = "fiados"
+    id         = Column(Integer,     primary_key=True, autoincrement=True)
+    fecha      = Column(String(30),  nullable=False)
+    cliente    = Column(String(150), nullable=False)
+    total      = Column(Float,       default=0)
+    estado     = Column(String(20),  default="pendiente")   # pendiente | pagado
+    fecha_pago = Column(String(30),  default=None)
+    notas      = Column(String(255), default="")
+    items      = relationship("FiadoItem", back_populates="fiado",
+                               cascade="all, delete-orphan")
+
+class FiadoItem(Base):
+    __tablename__ = "fiado_items"
+    id        = Column(Integer,     primary_key=True, autoincrement=True)
+    fiado_id  = Column(Integer,     ForeignKey("fiados.id"), nullable=False)
+    producto  = Column(String(255), nullable=False)
+    cantidad  = Column(Integer,     default=1)
+    precio    = Column(Float,       nullable=False)
+    subtotal  = Column(Float,       nullable=False)
+    fiado     = relationship("Fiado", back_populates="items")

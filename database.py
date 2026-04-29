@@ -1,7 +1,10 @@
 from contextlib import contextmanager
+
+from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from models import ENGINE, Base, Categoria, Producto, Venta, DetalleVenta
+from models import ENGINE, Base, Categoria, Producto, Venta, DetalleVenta, Fiado, FiadoItem
+from models import Observacion
 
 # ── Sesión ────────────────────────────────────────────────────────────────────
 @contextmanager
@@ -158,3 +161,202 @@ def get_stock_bajo(limite=5):
         return [{"nombre": p.nombre, "variante": p.variante,
                  "stock": p.stock, "cat": c.nombre}
                 for p, c in rows]
+
+
+# ── Observaciones / Caja chica ────────────────────────────────────────────────
+
+
+def get_observaciones_hoy(fecha_prefix):
+    with get_session() as s:
+        rows = (s.query(Observacion)
+                  .filter(Observacion.fecha.like(f"{fecha_prefix}%"))
+                  .order_by(Observacion.id.desc()).all())
+        return [{"id": o.id, "fecha": o.fecha,
+                 "monto": o.monto, "concepto": o.concepto}
+                for o in rows]
+
+def agregar_observacion(fecha, monto, concepto):
+    with get_session() as s:
+        s.add(Observacion(fecha=fecha, monto=monto, concepto=concepto))
+        s.commit()
+
+def eliminar_observacion(oid):
+    with get_session() as s:
+        s.delete(s.get(Observacion, oid))
+        s.commit()
+
+
+
+def get_ventas_hoy(fecha_prefix):
+    """Retorna todas las ventas del día con su detalle resumido."""
+    with get_session() as s:
+        ventas = (s.query(Venta)
+                   .filter(Venta.fecha.like(f"{fecha_prefix}%"))
+                   .order_by(Venta.id.asc()).all())
+        result = []
+        for v in ventas:
+            detalles = (s.query(DetalleVenta, Producto)
+                         .join(Producto)
+                         .filter(DetalleVenta.venta_id == v.id).all())
+            resumen = ", ".join(
+                f"{p.nombre} {p.variante}".strip() + f" x{d.cantidad}"
+                for d, p in detalles)
+            result.append({"id": v.id, "fecha": v.fecha,
+                            "total": v.total, "resumen": resumen})
+        return result
+
+
+
+# ── Fiados / Deudas ───────────────────────────────────────────────────────────
+
+def get_fiados(filtro="pendiente", buscar=""):
+    """filtro: 'pendiente' | 'pagado' | 'todos'"""
+    with get_session() as s:
+        q = s.query(Fiado)
+        if filtro == "pendiente":
+            q = q.filter(Fiado.estado == "pendiente")
+        elif filtro == "pagado":
+            q = q.filter(Fiado.estado == "pagado")
+        if buscar:
+            q = q.filter(Fiado.cliente.ilike(f"%{buscar}%"))
+        rows = q.order_by(Fiado.id.desc()).all()
+
+        result = []
+        for f in rows:
+            items = s.query(FiadoItem).filter(FiadoItem.fiado_id == f.id).all()
+            resumen = ", ".join(f"{it.producto} x{it.cantidad}" for it in items)
+            result.append({
+                "id": f.id, "fecha": f.fecha, "cliente": f.cliente,
+                "total": f.total, "estado": f.estado,
+                "fecha_pago": f.fecha_pago, "notas": f.notas,
+                "resumen": resumen,
+                "num_items": len(items)
+            })
+        return result
+
+def get_fiado_detalle(fid):
+    """Retorna los items de una deuda específica."""
+    with get_session() as s:
+        items = s.query(FiadoItem).filter(FiadoItem.fiado_id == fid).all()
+        return [{"producto": it.producto, "cantidad": it.cantidad,
+                 "precio": it.precio, "subtotal": it.subtotal}
+                for it in items]
+
+def agregar_fiado(fecha, cliente, items, notas=""):
+    """items = [{"producto", "cantidad", "precio", "subtotal"}, ...]"""
+    with get_session() as s:
+        total = sum(it["subtotal"] for it in items)
+        deuda = Fiado(fecha=fecha, cliente=cliente, total=total, notas=notas)
+        s.add(deuda)
+        s.flush()
+        for it in items:
+            s.add(FiadoItem(fiado_id=deuda.id,
+                             producto=it["producto"],
+                             cantidad=it["cantidad"],
+                             precio=it["precio"],
+                             subtotal=it["subtotal"]))
+        s.commit()
+
+def marcar_pagado(fid, fecha_pago):
+    with get_session() as s:
+        f = s.get(Fiado, fid)
+        f.estado = "pagado"
+        f.fecha_pago = fecha_pago
+        s.commit()
+
+def eliminar_fiado(fid):
+    with get_session() as s:
+        s.delete(s.get(Fiado, fid))
+        s.commit()
+
+def get_stats_fiados():
+    """Retorna (cantidad_pendientes, total_pendiente_Q)"""
+    with get_session() as s:
+        pendientes = s.query(Fiado).filter(Fiado.estado == "pendiente").all()
+        return len(pendientes), sum(f.total for f in pendientes)
+
+def limpiar_pagados_antiguos(dias=7):
+    """Elimina automáticamente los fiados pagados con más de N días."""
+    with get_session() as s:
+        pagados = (s.query(Fiado)
+                    .filter(Fiado.estado == "pagado",
+                            Fiado.fecha_pago != None).all())
+        ahora = datetime.now()
+        borrados = 0
+        for f in pagados:
+            try:
+                fpago = datetime.strptime(f.fecha_pago, "%Y-%m-%d %H:%M:%S")
+                if (ahora - fpago).days >= dias:
+                    s.delete(f)
+                    borrados += 1
+            except (ValueError, TypeError):
+                continue
+        s.commit()
+        return borrados
+
+def get_fiados_hoy(fecha_prefix):
+    """
+    Retorna para el reporte del día:
+    - Fiados PAGADOS hoy (fecha_pago coincide con hoy)
+    - Fiados PENDIENTES (sin importar cuándo se registraron)
+    """
+    with get_session() as s:
+        fiados = (s.query(Fiado).filter(
+            # Pagados hoy
+            ((Fiado.estado == "pagado") &
+             (Fiado.fecha_pago.like(f"{fecha_prefix}%")))
+            |
+            # O pendientes (sea cuando sea)
+            (Fiado.estado == "pendiente")
+        ).order_by(Fiado.id.asc()).all())
+
+        result = []
+        for f in fiados:
+            items_db = s.query(FiadoItem).filter(FiadoItem.fiado_id == f.id).all()
+            items = [{
+                "producto": it.producto,
+                "cantidad": it.cantidad,
+                "precio":   it.precio,
+                "subtotal": it.subtotal,
+            } for it in items_db]
+            resumen = ", ".join(f"{it['producto']} x{it['cantidad']}" for it in items)
+            # La "fecha" que mostrará el reporte:
+            # - si fue pagado hoy, mostramos la hora del pago
+            # - si está pendiente, la hora de registro
+            fecha_mostrar = f.fecha_pago if f.estado == "pagado" else f.fecha
+            result.append({
+                "id": f.id,
+                "fecha": fecha_mostrar,
+                "fecha_registro": f.fecha,
+                "cliente": f.cliente,
+                "total": f.total,
+                "estado": f.estado,
+                "resumen": resumen,
+                "items": items,
+            })
+        return result
+
+
+
+def get_ventas_hoy(fecha_prefix):
+    """Retorna todas las ventas del día con su detalle completo (items)."""
+    with get_session() as s:
+        ventas = (s.query(Venta)
+                   .filter(Venta.fecha.like(f"{fecha_prefix}%"))
+                   .order_by(Venta.id.asc()).all())
+        result = []
+        for v in ventas:
+            detalles = (s.query(DetalleVenta, Producto)
+                         .join(Producto)
+                         .filter(DetalleVenta.venta_id == v.id).all())
+            items = [{
+                "producto": f"{p.nombre} {p.variante}".strip(),
+                "cantidad": d.cantidad,
+                "precio":   d.precio_unit,
+                "subtotal": d.subtotal,
+            } for d, p in detalles]
+            resumen = ", ".join(f"{it['producto']} x{it['cantidad']}" for it in items)
+            result.append({"id": v.id, "fecha": v.fecha,
+                            "total": v.total, "resumen": resumen,
+                            "items": items})
+        return result

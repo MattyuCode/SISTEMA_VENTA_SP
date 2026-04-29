@@ -47,6 +47,7 @@ class InventarioFrame(ctk.CTkFrame):
 
         self.tree.tag_configure("sin_stock", foreground="#b91c1c")
         self.tree.tag_configure("bajo",      foreground="#b45309")
+        self.tree.tag_configure("servicio",  foreground="#7c3aed")
 
         sb = ctk.CTkScrollbar(tabla, command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
@@ -60,11 +61,26 @@ class InventarioFrame(ctk.CTkFrame):
         self.tree.delete(*self.tree.get_children())
         buscar = self.search_var.get().strip()
         for r in get_productos(buscar):
-            estado = "✅ OK"      if r["stock"] > 5 else ("⚠️ Bajo"  if r["stock"] > 0 else "❌ Agotado")
-            tag    = ""           if r["stock"] > 5 else ("bajo"     if r["stock"] > 0 else "sin_stock")
+            # Los servicios no tienen stock, siempre disponibles
+            if r.get("tipo") == "Servicio":
+                estado = "🔧 Servicio"
+                stock_txt = "∞"
+                tag = "servicio"
+            elif r["stock"] > 5:
+                estado = "✅ OK"
+                stock_txt = str(r["stock"])
+                tag = ""
+            elif r["stock"] > 0:
+                estado = "⚠️ Bajo"
+                stock_txt = str(r["stock"])
+                tag = "bajo"
+            else:
+                estado = "❌ Agotado"
+                stock_txt = "0"
+                tag = "sin_stock"
             self.tree.insert("", "end", iid=r["id"], values=(
                 r["id"], r["cat"], r["nombre"], r["variante"] or "—",
-                f"Q{r['precio']:.2f}", r["stock"], estado), tags=(tag,))
+                f"Q{r['precio']:.2f}", stock_txt, estado), tags=(tag,))
 
     def _sel(self):
         sel = self.tree.selection()
@@ -91,4 +107,9 @@ class InventarioFrame(ctk.CTkFrame):
     def agregar_stock(self):
         pid = self._sel()
         if pid is None: return
-        AgregarStockDialog(self, get_producto(pid), self.refresh)
+        prod = get_producto(pid)
+        if prod.get("tipo") == "Servicio":
+            messagebox.showinfo("Servicio",
+                "Los servicios no tienen stock — están siempre disponibles.")
+            return
+        AgregarStockDialog(self, prod, self.refresh)
