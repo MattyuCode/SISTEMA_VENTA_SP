@@ -16,7 +16,7 @@ pip install -U pyinstaller
 
 # build 
 ```bash 
-pyinstaller --onefile --noconsole --icon=icono.ico --name SISTEMA_SP --add-data "imagenes;imagenes" main.py
+pyinstaller --onefile --noconsole --icon=imagenes/icono.ico --name SISTEMA_SP --add-data "imagenes;imagenes" main.py
 ``` 
 
 
