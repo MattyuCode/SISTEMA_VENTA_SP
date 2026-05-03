@@ -56,7 +56,7 @@ class NuevoProductoFrame(ctk.CTkFrame):
         self.btn_servicio.pack(side="left")
 
         self.nombre   = fila("Nombre",                       placeholder_text="Ej: Lápiz / Solvencia Fiscal")
-        self.variante = fila("Variante (marca/tipo/tamaño)", placeholder_text="Ej: Mongol / DPI / Renap")
+       #self.variante = fila("Variante (marca/tipo/tamaño)", placeholder_text="Ej: Mongol / DPI / Renap")
         self.precio   = fila("Precio unitario (Q)",          placeholder_text="0.00")
 
         # Stock solo para productos

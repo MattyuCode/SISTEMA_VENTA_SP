@@ -4,6 +4,7 @@ from database import get_productos, get_producto, editar_producto, eliminar_prod
 from config import *
 from frames.dialogos import EditarProductoDialog, AgregarStockDialog
 
+
 class InventarioFrame(ctk.CTkFrame):
     def __init__(self, parent, app):
         super().__init__(parent, fg_color="transparent")
@@ -13,8 +14,23 @@ class InventarioFrame(ctk.CTkFrame):
         # ── Barra superior ────────────────────────────────────────────────
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", pady=(0, 8))
-        ctk.CTkEntry(top, placeholder_text="🔍  Buscar producto...",
-                     textvariable=self.search_var, width=260).pack(side="right")
+
+        # Contenedor del buscador con botón X
+        search_box = ctk.CTkFrame(top, fg_color="transparent")
+        search_box.pack(side="right")
+
+        self.search_entry = ctk.CTkEntry(search_box,
+                                         placeholder_text="🔍  Buscar producto...",
+                                         textvariable=self.search_var, width=260)
+        self.search_entry.pack(side="left")
+
+        ctk.CTkButton(search_box, text="✕", width=32, height=28,
+                      fg_color="transparent", hover_color=GRAY_BG,
+                      text_color=NAVY,
+                      font=ctk.CTkFont(size=14, weight="bold"),
+                      command=lambda: self.search_var.set("")
+                      ).pack(side="left", padx=(4, 0))
+
         self.search_var.trace_add("write", lambda *_: self.refresh())
 
         # ── Botones de acción ─────────────────────────────────────────────
@@ -39,15 +55,15 @@ class InventarioFrame(ctk.CTkFrame):
                              border_width=1, border_color=BORDER)
         tabla.pack(fill="both", expand=True)
 
-        cols = ("ID","Categoría","Producto","Variante","Precio","Stock","Estado")
+        cols = ("ID", "Categoría", "Producto", "Variante", "Precio", "Stock", "Estado")
         self.tree = ttk.Treeview(tabla, columns=cols, show="headings", height=22)
         for col, w in zip(cols, [40, 110, 160, 140, 80, 60, 90]):
             self.tree.heading(col, text=col)
             self.tree.column(col, width=w, anchor="center")
 
         self.tree.tag_configure("sin_stock", foreground="#b91c1c")
-        self.tree.tag_configure("bajo",      foreground="#b45309")
-        self.tree.tag_configure("servicio",  foreground="#7c3aed")
+        self.tree.tag_configure("bajo", foreground="#b45309")
+        self.tree.tag_configure("servicio", foreground="#7c3aed")
 
         sb = ctk.CTkScrollbar(tabla, command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
@@ -100,7 +116,7 @@ class InventarioFrame(ctk.CTkFrame):
         prod = get_producto(pid)
         nombre = f"{prod['nombre']} {prod['variante']}".strip()
         if messagebox.askyesno("Confirmar",
-                f"¿Eliminar '{nombre}'?\nEsta acción no se puede deshacer."):
+                               f"¿Eliminar '{nombre}'?\nEsta acción no se puede deshacer."):
             eliminar_producto(pid)
             self.refresh()
 
@@ -110,6 +126,6 @@ class InventarioFrame(ctk.CTkFrame):
         prod = get_producto(pid)
         if prod.get("tipo") == "Servicio":
             messagebox.showinfo("Servicio",
-                "Los servicios no tienen stock — están siempre disponibles.")
+                                "Los servicios no tienen stock — están siempre disponibles.")
             return
         AgregarStockDialog(self, prod, self.refresh)
