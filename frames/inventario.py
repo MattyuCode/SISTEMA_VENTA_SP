@@ -1,6 +1,6 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
-from database import get_productos, get_producto, editar_producto, eliminar_producto, agregar_stock
+from database import get_productos, get_producto, editar_producto, eliminar_producto, agregar_stock, get_mayoreos
 from config import *
 from frames.dialogos import EditarProductoDialog, AgregarStockDialog
 
@@ -55,15 +55,15 @@ class InventarioFrame(ctk.CTkFrame):
                              border_width=1, border_color=BORDER)
         tabla.pack(fill="both", expand=True)
 
-        cols = ("ID", "Categoría", "Producto", "Variante", "Precio", "Stock", "Estado")
+        cols = ("ID", "Categoría", "Producto", "Precio Unitario", "Precio Mayoreo", "Stock", "Estado")
         self.tree = ttk.Treeview(tabla, columns=cols, show="headings", height=22)
-        for col, w in zip(cols, [40, 110, 160, 140, 80, 60, 90]):
+        for col, w in zip(cols, [40, 120, 220, 80, 220, 70, 100]):
             self.tree.heading(col, text=col)
-            self.tree.column(col, width=w, anchor="center")
+            self.tree.column(col, width=w)
 
         self.tree.tag_configure("sin_stock", foreground="#b91c1c")
-        self.tree.tag_configure("bajo", foreground="#b45309")
-        self.tree.tag_configure("servicio", foreground="#7c3aed")
+        self.tree.tag_configure("bajo",      foreground="#b45309")
+        self.tree.tag_configure("servicio",  foreground="#7c3aed")
 
         sb = ctk.CTkScrollbar(tabla, command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
@@ -94,9 +94,17 @@ class InventarioFrame(ctk.CTkFrame):
                 estado = "❌ Agotado"
                 stock_txt = "0"
                 tag = "sin_stock"
+            mayoreos = get_mayoreos(r["id"])
+            if mayoreos:
+                mayoreo_txt = "  |  ".join(
+                    f"{p['nombre']}: Q{p['precio']:.2f}" for p in mayoreos
+                )
+            else:
+                mayoreo_txt = "—"
+
             self.tree.insert("", "end", iid=r["id"], values=(
-                r["id"], r["cat"], r["nombre"], r["variante"] or "—",
-                f"Q{r['precio']:.2f}", stock_txt, estado), tags=(tag,))
+                r["id"], r["cat"], r["nombre"],
+                f"Q{r['precio']:.2f}", mayoreo_txt, stock_txt, estado), tags=(tag,))
 
     def _sel(self):
         sel = self.tree.selection()
@@ -114,9 +122,8 @@ class InventarioFrame(ctk.CTkFrame):
         pid = self._sel()
         if pid is None: return
         prod = get_producto(pid)
-        nombre = f"{prod['nombre']} {prod['variante']}".strip()
         if messagebox.askyesno("Confirmar",
-                               f"¿Eliminar '{nombre}'?\nEsta acción no se puede deshacer."):
+                f"¿Eliminar '{prod['nombre']}'?\nEsta acción no se puede deshacer."):
             eliminar_producto(pid)
             self.refresh()
 
@@ -126,6 +133,6 @@ class InventarioFrame(ctk.CTkFrame):
         prod = get_producto(pid)
         if prod.get("tipo") == "Servicio":
             messagebox.showinfo("Servicio",
-                                "Los servicios no tienen stock — están siempre disponibles.")
+                "Los servicios no tienen stock — están siempre disponibles.")
             return
         AgregarStockDialog(self, prod, self.refresh)

@@ -1,9 +1,8 @@
 from contextlib import contextmanager
-
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from models import ENGINE, Base, Categoria, Producto, Venta, DetalleVenta, Fiado, FiadoItem
+from models import ENGINE, Base, Categoria, Producto, Venta, DetalleVenta, Fiado, FiadoItem, ProductosMayoreo
 from models import Observacion
 
 # ── Sesión ────────────────────────────────────────────────────────────────────
@@ -15,12 +14,6 @@ def get_session():
 # ── Inicializar base de datos ─────────────────────────────────────────────────
 def init_db():
     Base.metadata.create_all(ENGINE)
-    cats = ["Lápices","Lapiceros","Cuadernos","Hojas","Adhesivos","Papelería"]
-    with get_session() as s:
-        for nombre in cats:
-            if not s.query(Categoria).filter_by(nombre=nombre).first():
-                s.add(Categoria(nombre=nombre))
-        s.commit()
 
 # ── Categorías ────────────────────────────────────────────────────────────────
 def get_categorias():
@@ -38,13 +31,11 @@ def get_productos(buscar=""):
         if buscar:
             q = q.filter(
                 Producto.nombre.ilike(f"%{buscar}%") |
-                Producto.variante.ilike(f"%{buscar}%") |
                 Categoria.nombre.ilike(f"%{buscar}%")
             )
-        rows = q.order_by(Categoria.nombre, Producto.nombre, Producto.variante).all()
+        rows = q.order_by(Categoria.nombre, Producto.nombre).all()
         return [{"id": p.id, "cat": c.nombre, "nombre": p.nombre,
-                 "variante": p.variante, "precio": p.precio,
-                 "stock": p.stock, "tipo": p.tipo}
+                 "precio": p.precio, "stock": p.stock, "tipo": p.tipo}
                 for p, c in rows]
 
 def get_productos_en_stock(buscar=""):
@@ -53,36 +44,34 @@ def get_productos_en_stock(buscar=""):
             (Producto.stock > 0) | (Producto.tipo == "Servicio")
         )
         if buscar:
-            q = q.filter(
-                Producto.nombre.ilike(f"%{buscar}%") |
-                Producto.variante.ilike(f"%{buscar}%")
-            )
-        return [{"id": p.id, "nombre": p.nombre, "variante": p.variante,
-                 "precio": p.precio, "stock": p.stock, "tipo": p.tipo}
-                for p in q.order_by(Producto.nombre, Producto.variante).all()]
+            q = q.filter(Producto.nombre.ilike(f"%{buscar}%"))
+        return [{"id": p.id, "nombre": p.nombre, "precio": p.precio,
+                 "stock": p.stock, "tipo": p.tipo}
+                for p in q.order_by(Producto.nombre).all()]
 
 def get_producto(pid):
     with get_session() as s:
         p = s.get(Producto, pid)
         c = s.get(Categoria, p.categoria_id)
-        return {"id": p.id, "nombre": p.nombre, "variante": p.variante,
-                "precio": p.precio, "stock": p.stock, "tipo": p.tipo,
+        return {"id": p.id, "nombre": p.nombre, "precio": p.precio,
+                "stock": p.stock, "tipo": p.tipo,
                 "categoria_id": p.categoria_id, "cat": c.nombre}
 
-def crear_producto(cat_nombre, nombre, variante, tipo, precio, stock):
+def crear_producto(cat_nombre, nombre, tipo, precio, stock):
     with get_session() as s:
         cat = s.query(Categoria).filter_by(nombre=cat_nombre).first()
-        s.add(Producto(categoria_id=cat.id, nombre=nombre, variante=variante,
-                       tipo=tipo, precio=precio, stock=stock))
+        p = Producto(categoria_id=cat.id, nombre=nombre,
+                     tipo=tipo, precio=precio, stock=stock)
+        s.add(p)
         s.commit()
+        return p.id  # ← retornar el ID
 
-def editar_producto(pid, cat_nombre, nombre, variante, tipo, precio):
+def editar_producto(pid, cat_nombre, nombre, tipo, precio):
     with get_session() as s:
         cat = s.query(Categoria).filter_by(nombre=cat_nombre).first()
         p   = s.get(Producto, pid)
         p.categoria_id = cat.id
         p.nombre       = nombre
-        p.variante     = variante
         p.tipo         = tipo
         p.precio       = precio
         s.commit()
@@ -98,10 +87,9 @@ def agregar_stock(pid, cantidad):
         s.commit()
 
 # ── Ventas ────────────────────────────────────────────────────────────────────
-def registrar_venta(fecha, total, items):
-    """items = [{"producto_id", "cantidad", "precio_unit", "subtotal", "tipo"}, ...]"""
+def registrar_venta(fecha, total, items, descuento=0.0):
     with get_session() as s:
-        venta = Venta(fecha=fecha, total=total)
+        venta = Venta(fecha=fecha, total=total, descuento=descuento)
         s.add(venta)
         s.flush()
         for it in items:
@@ -110,8 +98,8 @@ def registrar_venta(fecha, total, items):
                 producto_id = it["producto_id"],
                 cantidad    = it["cantidad"],
                 precio_unit = it["precio_unit"],
-                subtotal    = it["subtotal"]))
-            # solo descuenta stock si es Producto
+                subtotal    = it["subtotal"],
+                descuento = it.get("descuento", 0.0)))
             if it.get("tipo", "Producto") == "Producto":
                 s.get(Producto, it["producto_id"]).stock -= it["cantidad"]
         s.commit()
@@ -124,11 +112,10 @@ def get_ventas():
             detalles = (s.query(DetalleVenta, Producto)
                          .join(Producto)
                          .filter(DetalleVenta.venta_id == v.id).all())
-            resumen = ", ".join(
-                f"{p.nombre} {p.variante}".strip() + f" x{d.cantidad}"
-                for d, p in detalles)
+            resumen = ", ".join(f"{p.nombre} x{d.cantidad}" for d, p in detalles)
             result.append({"id": v.id, "fecha": v.fecha,
-                            "total": v.total, "resumen": resumen})
+                            "total": v.total, "descuento": v.descuento,
+                            "resumen": resumen})
         return result
 
 def get_detalle_venta(venta_id):
@@ -136,10 +123,37 @@ def get_detalle_venta(venta_id):
         rows = (s.query(DetalleVenta, Producto)
                   .join(Producto)
                   .filter(DetalleVenta.venta_id == venta_id).all())
-        return [{"prod": f"{p.nombre} {p.variante}".strip(),
-                 "cantidad": d.cantidad, "precio_unit": d.precio_unit,
-                 "subtotal": d.subtotal}
+        return [{"prod": p.nombre,
+                 "cantidad": d.cantidad,
+                 "precio_unit": d.precio_unit,
+                 "subtotal": d.subtotal,
+                 "descuento": d.descuento or 0.0}   # ← agregar
                 for d, p in rows]
+
+
+def get_ventas_hoy(fecha_prefix):
+    with get_session() as s:
+        ventas = (s.query(Venta)
+                   .filter(Venta.fecha.like(f"{fecha_prefix}%"))
+                   .order_by(Venta.id.asc()).all())
+        result = []
+        for v in ventas:
+            detalles = (s.query(DetalleVenta, Producto)
+                         .join(Producto)
+                         .filter(DetalleVenta.venta_id == v.id).all())
+            items = [{
+                "producto": p.nombre,
+                "cantidad": d.cantidad,
+                "precio":   d.precio_unit,
+                "subtotal": d.subtotal,
+                "descuento": d.descuento or 0.0,    # ← incluir descuento por item
+            } for d, p in detalles]
+            resumen = ", ".join(f"{it['producto']} x{it['cantidad']}" for it in items)
+            result.append({"id": v.id, "fecha": v.fecha, "total": v.total,
+                            "descuento": v.descuento or 0.0,
+                            "resumen": resumen, "items": items})
+        return result
+
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 def get_stats(hoy_prefix, mes_prefix):
@@ -158,14 +172,10 @@ def get_stock_bajo(limite=5):
         rows = (s.query(Producto, Categoria).join(Categoria)
                   .filter(Producto.stock <= limite, Producto.tipo == "Producto")
                   .order_by(Producto.stock.asc()).limit(20).all())
-        return [{"nombre": p.nombre, "variante": p.variante,
-                 "stock": p.stock, "cat": c.nombre}
+        return [{"nombre": p.nombre, "stock": p.stock, "cat": c.nombre}
                 for p, c in rows]
 
-
 # ── Observaciones / Caja chica ────────────────────────────────────────────────
-
-
 def get_observaciones_hoy(fecha_prefix):
     with get_session() as s:
         rows = (s.query(Observacion)
@@ -185,30 +195,7 @@ def eliminar_observacion(oid):
         s.delete(s.get(Observacion, oid))
         s.commit()
 
-
-
-def get_ventas_hoy(fecha_prefix):
-    """Retorna todas las ventas del día con su detalle resumido."""
-    with get_session() as s:
-        ventas = (s.query(Venta)
-                   .filter(Venta.fecha.like(f"{fecha_prefix}%"))
-                   .order_by(Venta.id.asc()).all())
-        result = []
-        for v in ventas:
-            detalles = (s.query(DetalleVenta, Producto)
-                         .join(Producto)
-                         .filter(DetalleVenta.venta_id == v.id).all())
-            resumen = ", ".join(
-                f"{p.nombre} {p.variante}".strip() + f" x{d.cantidad}"
-                for d, p in detalles)
-            result.append({"id": v.id, "fecha": v.fecha,
-                            "total": v.total, "resumen": resumen})
-        return result
-
-
-
 # ── Fiados / Deudas ───────────────────────────────────────────────────────────
-
 def get_fiados(filtro="pendiente", buscar=""):
     """filtro: 'pendiente' | 'pagado' | 'todos'"""
     with get_session() as s:
@@ -270,13 +257,11 @@ def eliminar_fiado(fid):
         s.commit()
 
 def get_stats_fiados():
-    """Retorna (cantidad_pendientes, total_pendiente_Q)"""
     with get_session() as s:
         pendientes = s.query(Fiado).filter(Fiado.estado == "pendiente").all()
         return len(pendientes), sum(f.total for f in pendientes)
 
 def limpiar_pagados_antiguos(dias=7):
-    """Elimina automáticamente los fiados pagados con más de N días."""
     with get_session() as s:
         pagados = (s.query(Fiado)
                     .filter(Fiado.estado == "pagado",
@@ -302,11 +287,9 @@ def get_fiados_hoy(fecha_prefix):
     """
     with get_session() as s:
         fiados = (s.query(Fiado).filter(
-            # Pagados hoy
             ((Fiado.estado == "pagado") &
              (Fiado.fecha_pago.like(f"{fecha_prefix}%")))
             |
-            # O pendientes (sea cuando sea)
             (Fiado.estado == "pendiente")
         ).order_by(Fiado.id.asc()).all())
 
@@ -320,9 +303,6 @@ def get_fiados_hoy(fecha_prefix):
                 "subtotal": it.subtotal,
             } for it in items_db]
             resumen = ", ".join(f"{it['producto']} x{it['cantidad']}" for it in items)
-            # La "fecha" que mostrará el reporte:
-            # - si fue pagado hoy, mostramos la hora del pago
-            # - si está pendiente, la hora de registro
             fecha_mostrar = f.fecha_pago if f.estado == "pagado" else f.fecha
             result.append({
                 "id": f.id,
@@ -337,26 +317,19 @@ def get_fiados_hoy(fecha_prefix):
         return result
 
 
-
-def get_ventas_hoy(fecha_prefix):
-    """Retorna todas las ventas del día con su detalle completo (items)."""
+def get_mayoreos(producto_id):
     with get_session() as s:
-        ventas = (s.query(Venta)
-                   .filter(Venta.fecha.like(f"{fecha_prefix}%"))
-                   .order_by(Venta.id.asc()).all())
-        result = []
-        for v in ventas:
-            detalles = (s.query(DetalleVenta, Producto)
-                         .join(Producto)
-                         .filter(DetalleVenta.venta_id == v.id).all())
-            items = [{
-                "producto": f"{p.nombre} {p.variante}".strip(),
-                "cantidad": d.cantidad,
-                "precio":   d.precio_unit,
-                "subtotal": d.subtotal,
-            } for d, p in detalles]
-            resumen = ", ".join(f"{it['producto']} x{it['cantidad']}" for it in items)
-            result.append({"id": v.id, "fecha": v.fecha,
-                            "total": v.total, "resumen": resumen,
-                            "items": items})
-        return result
+        rows = s.query(ProductosMayoreo).filter_by(producto_id=producto_id).all()
+        return [{"id": r.id, "nombre": r.nombre, "precio": r.precio} for r in rows]
+
+def guardar_mayoreos(producto_id, mayoreos):
+    """presentaciones = [{"nombre": str, "precio": float}, ...]"""
+    with get_session() as s:
+        # Borrar las anteriores y reemplazar
+        s.query(ProductosMayoreo).filter_by(producto_id=producto_id).delete()
+        for p in mayoreos:
+            s.add(ProductosMayoreo(
+                producto_id=producto_id,
+                nombre=p["nombre"],
+                precio=p["precio"]))
+        s.commit()

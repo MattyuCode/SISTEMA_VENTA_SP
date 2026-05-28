@@ -23,10 +23,10 @@ class InicioFrame(ctk.CTkFrame):
         cards_row.pack(fill="x", pady=(0, 20))
 
         for title, val, color in [
-            ("📦 Productos",  str(total_prod),          NAVY),
-            ("⚠️ Sin stock",  str(sin_stock),            ORANGE),
-            ("💰 Ventas hoy", f"Q{ventas_hoy:.2f}",     "#16a34a"),
-            ("📅 Ventas mes", f"Q{ventas_mes:.2f}",     "#7c3aed"),
+            ("📦 Productos",  str(total_prod),      NAVY),
+            ("⚠️ Sin stock",  str(sin_stock),        ORANGE),
+            ("💰 Ventas hoy", f"Q{ventas_hoy:.2f}", "#16a34a"),
+            ("📅 Ventas mes", f"Q{ventas_mes:.2f}", "#7c3aed"),
         ]:
             card = ctk.CTkFrame(cards_row, width=190, height=96,
                                 corner_radius=12, fg_color=WHITE,
@@ -49,9 +49,9 @@ class InicioFrame(ctk.CTkFrame):
                              border_width=1, border_color=BORDER)
         tabla.pack(fill="both", expand=True)
 
-        cols = ("Producto", "Variante", "Categoría", "Stock", "Estado")
+        cols = ("Producto", "Categoría", "Stock", "Estado")
         tree = ttk.Treeview(tabla, columns=cols, show="headings", height=12)
-        for col, w in zip(cols, [160, 140, 120, 70, 90]):
+        for col, w in zip(cols, [260, 160, 70, 100]):
             tree.heading(col, text=col)
             tree.column(col, width=w, anchor="center")
         tree.tag_configure("sin_stock", foreground="#b91c1c")
@@ -65,11 +65,10 @@ class InicioFrame(ctk.CTkFrame):
         rows = get_stock_bajo(limite=5)
         if not rows:
             tree.insert("", "end", values=(
-                "", "", "Todo el inventario tiene stock suficiente.", "", ""))
+                "Todo el inventario tiene stock suficiente.", "", "", ""))
         else:
             for r in rows:
                 estado = "❌ Agotado" if r["stock"] == 0 else "⚠️ Bajo"
                 tag    = "sin_stock"  if r["stock"] == 0 else "bajo"
                 tree.insert("", "end", values=(
-                    r["nombre"], r["variante"] or "—",
-                    r["cat"], r["stock"], estado), tags=(tag,))
+                    r["nombre"], r["cat"], r["stock"], estado), tags=(tag,))

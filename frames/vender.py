@@ -1,8 +1,10 @@
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
-from database import get_productos_en_stock, registrar_venta
+from database import get_productos_en_stock, registrar_venta, get_mayoreos
 from config import *
+
 
 class VenderFrame(ctk.CTkFrame):
     def __init__(self, parent, app):
@@ -10,25 +12,20 @@ class VenderFrame(ctk.CTkFrame):
         self.app = app
         self.carrito  = []
         self.cantidad = 1
+        self._pres_seleccionada = None
 
-        # ── PanedWindow = separador arrastrable ───────────────────────────
         self.paned = ctk.CTkFrame(self, fg_color="transparent")
         self.paned.pack(fill="both", expand=True)
 
-        import tkinter as tk
         self.pw = tk.PanedWindow(self.paned, orient=tk.HORIZONTAL,
                                  sashwidth=6, sashrelief="flat",
                                  bg="#cbd5e1", handlesize=0)
         self.pw.pack(fill="both", expand=True)
 
-        # Panel izquierdo
-        self.frm_izq = ctk.CTkFrame(self.pw, fg_color=WHITE,
-                                     corner_radius=10)
+        self.frm_izq = ctk.CTkFrame(self.pw, fg_color=WHITE, corner_radius=10)
         self.pw.add(self.frm_izq, minsize=280, width=430)
 
-        # Panel derecho
-        self.frm_der = ctk.CTkFrame(self.pw, fg_color=WHITE,
-                                     corner_radius=10)
+        self.frm_der = ctk.CTkFrame(self.pw, fg_color=WHITE, corner_radius=10)
         self.pw.add(self.frm_der, minsize=280)
 
         self._build_panel_izq(self.frm_izq)
@@ -36,8 +33,7 @@ class VenderFrame(ctk.CTkFrame):
 
     # ── Panel izquierdo ───────────────────────────────────────────────────────
     def _build_panel_izq(self, parent):
-        ctk.CTkFrame(parent, height=4, corner_radius=0,
-                     fg_color=NAVY).pack(fill="x")
+        ctk.CTkFrame(parent, height=4, corner_radius=0, fg_color=NAVY).pack(fill="x")
 
         inner = ctk.CTkFrame(parent, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=12, pady=10)
@@ -45,19 +41,43 @@ class VenderFrame(ctk.CTkFrame):
         ctk.CTkLabel(inner, text="Buscar producto", text_color=NAVY,
                      font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", pady=(4, 2))
         self.buscar_var = ctk.StringVar()
-        ctk.CTkEntry(inner, textvariable=self.buscar_var,
-                     placeholder_text="Nombre o variante...").pack(fill="x")
+
+        search_box = ctk.CTkFrame(inner, fg_color="transparent")
+        search_box.pack(fill="x")
+
+        self.buscar_entry = ctk.CTkEntry(search_box,
+                                         textvariable=self.buscar_var,
+                                         placeholder_text="Nombre...")
+        self.buscar_entry.pack(side="left", fill="x", expand=True)
+
+        ctk.CTkButton(search_box, text="X", width=32, height=28,
+                      fg_color=GRAY_BG2, hover_color=GRAY_BG,
+                      text_color=NAVY,
+                      font=ctk.CTkFont(size=14, weight="bold"),
+                      command=lambda: self.buscar_var.set("")
+                      ).pack(side="left", padx=(4, 0))
+
         self.buscar_var.trace_add("write", lambda *_: self.actualizar_lista())
 
-        # Lista con scrollbar en su propio contenedor
+        # ── Panel de presentaciones ───────────────────────────────────────
+        self.pres_panel = ctk.CTkFrame(inner, fg_color=GRAY_BG, corner_radius=8)
+        # No se hace pack aquí — aparece solo cuando hay presentaciones
+
+        self.pres_nombre_lbl = ctk.CTkLabel(self.pres_panel, text="",
+                                             font=ctk.CTkFont(size=12, weight="bold"),
+                                             text_color=NAVY)
+        self.pres_nombre_lbl.pack(anchor="w", padx=10, pady=(8, 4))
+
+        self.pres_botones_frame = ctk.CTkFrame(self.pres_panel, fg_color="transparent")
+        self.pres_botones_frame.pack(fill="x", padx=10, pady=(0, 8))
+
+        # ── Lista con scrollbar ───────────────────────────────────────────
         lista_frame = ctk.CTkFrame(inner, fg_color="transparent")
         lista_frame.pack(fill="both", expand=True, pady=6)
 
-        self.lista = ttk.Treeview(lista_frame,
-            columns=("Producto","Variante","Precio","Stock","Tipo"),
-            show="headings", height=13)
-        for col, w in zip(("Producto","Variante","Precio","Stock","Tipo"),
-                           [110, 110, 70, 55, 75]):
+        cols = ("Producto", "Precio", "Stock")
+        self.lista = ttk.Treeview(lista_frame, columns=cols, show="headings", height=13)
+        for col, w in zip(cols, [220, 90, 80]):
             self.lista.heading(col, text=col)
             self.lista.column(col, width=w, anchor="center")
         self.lista.tag_configure("servicio", foreground="#7c3aed")
@@ -66,9 +86,10 @@ class VenderFrame(ctk.CTkFrame):
         self.lista.configure(yscrollcommand=sb.set)
         self.lista.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
+        self.lista.bind("<<TreeviewSelect>>", self._on_producto_sel)
         self.lista.bind("<Double-1>", lambda e: self.agregar_al_carrito())
 
-        # Cantidad — fijo abajo, no se mueve
+        # ── Cantidad ──────────────────────────────────────────────────────
         cf = ctk.CTkFrame(inner, fg_color="transparent")
         cf.pack(fill="x", pady=(4, 6))
         ctk.CTkLabel(cf, text="Cantidad:", text_color=NAVY,
@@ -91,12 +112,12 @@ class VenderFrame(ctk.CTkFrame):
         ctk.CTkButton(inner, text="➕  Agregar al carrito", height=38,
                       fg_color=ORANGE, hover_color="#ea6c0a",
                       font=ctk.CTkFont(size=13, weight="bold"),
-                      command=self.agregar_al_carrito).pack(fill="x", side="bottom", pady=(4,0))
+                      command=self.agregar_al_carrito
+                      ).pack(fill="x", side="bottom", pady=(4, 0))
 
     # ── Panel derecho ─────────────────────────────────────────────────────────
     def _build_panel_der(self, parent):
-        ctk.CTkFrame(parent, height=4, corner_radius=0,
-                     fg_color=ORANGE).pack(fill="x")
+        ctk.CTkFrame(parent, height=4, corner_radius=0, fg_color=ORANGE).pack(fill="x")
 
         inner = ctk.CTkFrame(parent, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=12, pady=10)
@@ -105,20 +126,52 @@ class VenderFrame(ctk.CTkFrame):
                      font=ctk.CTkFont(size=14, weight="bold"),
                      text_color=NAVY).pack(anchor="w", pady=(0, 6))
 
-        self.carrito_tree = ttk.Treeview(inner,
-            columns=("Producto","Cant","Precio","Subtotal"),
-            show="headings", height=13)
-        for col, w in zip(("Producto","Cant","Precio","Subtotal"),
-                           [200, 60, 90, 100]):
+        cols = ("Producto", "Cant", "Precio", "Descuento", "Subtotal")
+        self.carrito_tree = ttk.Treeview(inner, columns=cols, show="headings", height=13)
+        for col, w in zip(cols, [180, 50, 80, 80, 90]):
             self.carrito_tree.heading(col, text=col)
             self.carrito_tree.column(col, width=w, anchor="center")
+        self.carrito_tree.tag_configure("con_descuento", foreground="#dc2626")
         self.carrito_tree.pack(fill="both", expand=True, pady=4)
         self.carrito_tree.bind("<Delete>", lambda e: self.quitar_del_carrito())
 
-        self.total_lbl = ctk.CTkLabel(inner, text="Total: Q0.00",
+        desc_frame = ctk.CTkFrame(inner, fg_color=GRAY_BG, corner_radius=8)
+        desc_frame.pack(fill="x", pady=(0, 6))
+        row_desc = ctk.CTkFrame(desc_frame, fg_color="transparent")
+        row_desc.pack(padx=10, pady=6, fill="x")
+
+        ctk.CTkLabel(row_desc, text="Descuento Q:", text_color=NAVY,
+                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=(0, 8))
+        self.descuento_var = ctk.StringVar(value="0")
+        ctk.CTkEntry(row_desc, textvariable=self.descuento_var,
+                     width=100).pack(side="left")
+        ctk.CTkButton(row_desc, text="✔ Aplicar", width=90, height=28,
+                      fg_color=NAVY, hover_color="#1a3d6e",
+                      text_color=WHITE,
+                      font=ctk.CTkFont(size=12, weight="bold"),
+                      command=self.aplicar_descuento_a_seleccionado).pack(side="left", padx=(8, 0))
+        ctk.CTkButton(row_desc, text="✕ Quitar", width=80, height=28,
+                      fg_color="transparent", border_width=1, border_color=BORDER,
+                      text_color=NAVY, hover_color=GRAY_BG,
+                      command=lambda: self.descuento_var.set("0")).pack(side="left", padx=(6, 0))
+
+        totales_frame = ctk.CTkFrame(inner, fg_color="transparent")
+        totales_frame.pack(fill="x", pady=(2, 6))
+
+        self.subtotal_lbl = ctk.CTkLabel(totales_frame, text="Subtotal: Q0.00",
+                                          font=ctk.CTkFont(size=12),
+                                          text_color=TEXT_MUTED)
+        self.subtotal_lbl.pack(anchor="e")
+
+        self.desc_lbl = ctk.CTkLabel(totales_frame, text="",
+                                      font=ctk.CTkFont(size=12),
+                                      text_color="#dc2626")
+        self.desc_lbl.pack(anchor="e")
+
+        self.total_lbl = ctk.CTkLabel(totales_frame, text="Total: Q0.00",
                                        font=ctk.CTkFont(size=20, weight="bold"),
                                        text_color=ORANGE)
-        self.total_lbl.pack(anchor="e", pady=6)
+        self.total_lbl.pack(anchor="e")
 
         btns = ctk.CTkFrame(inner, fg_color="transparent")
         btns.pack(fill="x")
@@ -139,12 +192,77 @@ class VenderFrame(ctk.CTkFrame):
     def actualizar_lista(self):
         self.lista.delete(*self.lista.get_children())
         for r in get_productos_en_stock(self.buscar_var.get().strip()):
-            tag      = "servicio" if r["tipo"] == "Servicio" else ""
+            tag       = "servicio" if r["tipo"] == "Servicio" else ""
             stock_txt = "∞" if r["tipo"] == "Servicio" else str(r["stock"])
             self.lista.insert("", "end", iid=r["id"], values=(
-                r["nombre"], r["variante"] or "—",
-                f"Q{r['precio']:.2f}", stock_txt, r["tipo"]), tags=(tag,))
+                r["nombre"], f"Q{r['precio']:.2f}", stock_txt
+            ), tags=(tag,))
 
+    # ── Presentaciones ────────────────────────────────────────────────────────
+    def _on_producto_sel(self, event=None):
+        sel = self.lista.selection()
+        if not sel:
+            self.pres_panel.pack_forget()
+            self._pres_seleccionada = None
+            return
+
+        pid  = int(sel[0])
+        vals = self.lista.item(pid, "values")
+        presentaciones = get_mayoreos(pid)
+
+        for w in self.pres_botones_frame.winfo_children():
+            w.destroy()
+        self._pres_seleccionada = None
+
+        if not presentaciones:
+            self.pres_panel.pack_forget()
+            return
+
+        self.pres_nombre_lbl.configure(text=f"Unidad y Mayor — {vals[0]}")
+        self.pres_panel.pack(fill="x", pady=(0, 4))
+
+        precio_base = float(vals[1].replace("Q", ""))
+        primera = True
+        if precio_base > 0:
+            self._crear_boton_pres("Unidad", precio_base, seleccionado=True)
+            self._pres_seleccionada = {"nombre": "Unidad", "precio": precio_base}
+            primera = False
+
+        for p in presentaciones:
+            self._crear_boton_pres(p["nombre"], p["precio"],
+                                    seleccionado=(primera))
+            if primera:
+                self._pres_seleccionada = {"nombre": p["nombre"], "precio": p["precio"]}
+                primera = False
+
+    def _crear_boton_pres(self, nombre, precio, seleccionado=False):
+        btn = ctk.CTkButton(
+            self.pres_botones_frame,
+            text=f"{nombre}\nQ{precio:.2f}",
+            width=90, height=50,
+            corner_radius=8,
+            fg_color=ORANGE if seleccionado else "transparent",
+            text_color=WHITE if seleccionado else NAVY,
+            border_width=1,
+            border_color=ORANGE if seleccionado else NAVY,
+            hover_color="#ea6c0a",
+            font=ctk.CTkFont(size=11),
+            command=lambda n=nombre, p=precio: self._sel_pres(n, p)
+        )
+        btn.pack(side="left", padx=(0, 6))
+
+    def _sel_pres(self, nombre, precio):
+        self._pres_seleccionada = {"nombre": nombre, "precio": precio}
+        for btn in self.pres_botones_frame.winfo_children():
+            btn_nombre = btn.cget("text").split("\n")[0]
+            if btn_nombre == nombre:
+                btn.configure(fg_color=ORANGE, text_color=WHITE,
+                              hover_color="#ea6c0a", border_color=ORANGE)
+            else:
+                btn.configure(fg_color="transparent", text_color=NAVY,
+                              hover_color=GRAY_BG, border_color=NAVY)
+
+    # ── Validación cantidad ───────────────────────────────────────────────────
     def _validar_cantidad(self, *_):
         val = self.cant_var.get()
         if val == "":
@@ -176,22 +294,31 @@ class VenderFrame(ctk.CTkFrame):
     def agregar_al_carrito(self):
         sel = self.lista.selection()
         if not sel:
-            messagebox.showwarning("Aviso", "Selecciona un producto."); return
-        pid        = int(sel[0])
-        vals       = self.lista.item(pid, "values")
-        tipo       = vals[4]
-        stock_disp = 999999 if tipo == "Servicio" else int(vals[3])
-        precio     = float(vals[2].replace("Q", ""))
-        nombre     = f"{vals[0]} {vals[1]}".replace("—", "").strip()
+            messagebox.showwarning("Aviso", "Selecciona un producto.")
+            return
 
-        en_c = sum(i["cantidad"] for i in self.carrito if i["producto_id"] == pid)
+        pid  = int(sel[0])
+        vals = self.lista.item(pid, "values")
+        tipo       = "Servicio" if vals[2] == "∞" else "Producto"
+        stock_disp = 999999 if tipo == "Servicio" else int(vals[2])
+
+        if self._pres_seleccionada:
+            pres_nombre = self._pres_seleccionada["nombre"]
+            precio      = self._pres_seleccionada["precio"]
+            nombre      = vals[0] if pres_nombre == "Unidad" else f"{vals[0]} [{pres_nombre}]"
+        else:
+            nombre = vals[0]
+            precio = float(vals[1].replace("Q", ""))
+
+        en_c = sum(i["cantidad"] for i in self.carrito
+                   if i["producto_id"] == pid and i["nombre"] == nombre)
         if en_c + self.cantidad > stock_disp:
             messagebox.showerror("Error",
                 f"Stock insuficiente. Disponible: {stock_disp - en_c}")
             return
 
         for item in self.carrito:
-            if item["producto_id"] == pid:
+            if item["producto_id"] == pid and item["nombre"] == nombre:
                 item["cantidad"] += self.cantidad
                 self._reset_cantidad()
                 self._render_carrito()
@@ -199,20 +326,54 @@ class VenderFrame(ctk.CTkFrame):
 
         self.carrito.append({"producto_id": pid, "nombre": nombre,
                               "precio": precio, "cantidad": self.cantidad,
-                              "tipo": tipo})
+                              "tipo": tipo, "descuento": 0.0})
         self._reset_cantidad()
+        self._render_carrito()
+
+    def aplicar_descuento_a_seleccionado(self):
+        sel = self.carrito_tree.selection()
+        if not sel:
+            messagebox.showwarning("Aviso", "Selecciona un producto del carrito."); return
+        try:
+            descuento = float(self.descuento_var.get())
+            if descuento < 0: raise ValueError
+        except ValueError:
+            messagebox.showerror("Error", "Descuento inválido."); return
+
+        idx = int(sel[0])
+        self.carrito[idx]["descuento"] = descuento
+        self.descuento_var.set("0")
         self._render_carrito()
 
     def _render_carrito(self):
         self.carrito_tree.delete(*self.carrito_tree.get_children())
-        total = 0.0
+        subtotal   = 0.0
+        total_desc = 0.0
+
         for i, item in enumerate(self.carrito):
-            sub = item["precio"] * item["cantidad"]
-            total += sub
+            sub       = item["precio"] * item["cantidad"]
+            desc      = item.get("descuento", 0.0)
+            sub_final = max(0.0, sub - desc)
+            subtotal  += sub_final
+            total_desc += desc
+
+            desc_txt = f"-Q{desc:.2f}" if desc > 0 else "—"
+            tag      = "con_descuento" if desc > 0 else ""
+
             self.carrito_tree.insert("", "end", iid=i, values=(
                 item["nombre"], item["cantidad"],
-                f"Q{item['precio']:.2f}", f"Q{sub:.2f}"))
-        self.total_lbl.configure(text=f"Total: Q{total:.2f}")
+                f"Q{item['precio']:.2f}",
+                desc_txt,
+                f"Q{sub_final:.2f}"
+            ), tags=(tag,))
+
+        bruto = subtotal + total_desc
+        self.subtotal_lbl.configure(text=f"Subtotal: Q{bruto:.2f}")
+        if total_desc > 0:
+            self.desc_lbl.configure(text=f"Descuentos: -Q{total_desc:.2f}")
+        else:
+            self.desc_lbl.configure(text="")
+        self.total_lbl.configure(text=f"Total: Q{subtotal:.2f}")
 
     def quitar_del_carrito(self):
         sel = self.carrito_tree.selection()
@@ -222,24 +383,36 @@ class VenderFrame(ctk.CTkFrame):
 
     def limpiar(self):
         self.carrito.clear()
+        self.descuento_var.set("0")
         self._render_carrito()
 
     def confirmar_venta(self):
         if not self.carrito:
             messagebox.showwarning("Aviso", "El carrito está vacío."); return
-        total = sum(i["precio"] * i["cantidad"] for i in self.carrito)
-        if not messagebox.askyesno("Confirmar",
-                f"¿Confirmar venta por Q{total:.2f}?\nSe descontará el stock automáticamente."):
-            return
+
+        total_descuentos = sum(i.get("descuento", 0.0) for i in self.carrito)
+        total = sum(
+            max(0.0, i["precio"] * i["cantidad"] - i.get("descuento", 0.0))
+            for i in self.carrito
+        )
+
         fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         items = [{"producto_id": i["producto_id"],
                   "cantidad":    i["cantidad"],
                   "precio_unit": i["precio"],
                   "subtotal":    i["precio"] * i["cantidad"],
+                  "descuento":   i.get("descuento", 0.0),
                   "tipo":        i.get("tipo", "Producto")}
                  for i in self.carrito]
-        registrar_venta(fecha, total, items)
-        messagebox.showinfo("Venta registrada", f"✅ Venta completada\nTotal: Q{total:.2f}")
+        registrar_venta(fecha, total, items, descuento=total_descuentos)
+
+        msg = f"✅ Venta completada\nTotal: Q{total:.2f}"
+        if total_descuentos > 0:
+            msg += f"\nDescuentos aplicados: -Q{total_descuentos:.2f}"
+        messagebox.showinfo("Venta registrada", msg)
+
         self.carrito.clear()
+        self.descuento_var.set("0")
+        self._pres_seleccionada = None
         self._render_carrito()
         self.actualizar_lista()

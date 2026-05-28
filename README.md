@@ -19,5 +19,11 @@ pip install -U pyinstaller
 pyinstaller --onefile --noconsole --icon=imagenes/icono.ico --name SISTEMA_SP --add-data "imagenes;imagenes" main.py
 ``` 
 
+- Para sacar el nombre de la computadora en el terminal
+````bash
+whoami
+````
+
+
 
 http://localhost:5001/

@@ -14,8 +14,7 @@ WA_URL_BASE   = "http://localhost:5001"
 WA_URL_ARCHIVO= f"{WA_URL_BASE}/enviar-archivo"
 WA_URL_MENSAJE= f"{WA_URL_BASE}/enviar-mensaje"
 
-# Número destino en formato: "502XXXXXXXX" (sin +, sin @c.us — tu API lo formatea sola)
-WA_NUMERO     = "50245412844"   # ← CAMBIA ESTO por tu número
+WA_NUMERO     = "50245412844"
 
 MESES_ES = {
     "January":"enero",   "February":"febrero", "March":"marzo",
@@ -25,7 +24,6 @@ MESES_ES = {
 }
 
 def fecha_es(fecha_str):
-    """Convierte '2026-04-20' → '20 de abril de 2026'"""
     dt = datetime.strptime(fecha_str, "%Y-%m-%d")
     mes_en = dt.strftime("%B")
     mes_es = MESES_ES.get(mes_en, mes_en)
@@ -36,20 +34,12 @@ ORANGE = colors.HexColor("#F97316")
 
 # ── Generar PDF ───────────────────────────────────────────────────────────────
 def generar_pdf(ventas, observaciones, fiados, fecha):
-    """
-    ventas        = lista de dicts {fecha, total, resumen}
-    observaciones = lista de dicts {fecha, monto, concepto}
-    fiados        = lista de dicts {fecha, cliente, total, estado, resumen}
-    fecha         = str "YYYY-MM-DD"
-    """
 
     carpeta_base = os.path.join(os.path.expanduser("~"), "Documents", "SISTEMA_SP", "Reportes")
     os.makedirs(carpeta_base, exist_ok=True)
 
-
-    nombre_archivo = f"reporte_{fecha}.pdf"
-    #ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-    #                    "..", nombre_archivo)
+    hora_actual = datetime.now().strftime("%H%M%S")
+    nombre_archivo = f"reporte_{fecha}_{hora_actual}.pdf"
     ruta = os.path.join(carpeta_base, nombre_archivo)
     ruta = os.path.normpath(ruta)
 
@@ -80,101 +70,136 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
     # ── Ventas ────────────────────────────────────────────────────────────────
     elements.append(Paragraph("Ventas del día", bold))
     total_dia = 0.0
+    total_descuentos = 0.0
     total_pagos_fiados = 0.0
+
     if not ventas and not any(f["estado"] == "pagado" for f in fiados):
         elements.append(Paragraph("No hubo ventas este día.", normal))
     else:
-        data = [["#", "Hora", "Producto", "Cantidad", "Precio", "Subtotal", "Total"]]
+        # Ahora tiene columna Descuento
+        data = [["#", "Hora", "Producto", "Cantidad", "Precio", "Descuento", "Subtotal", "Total"]]
         estilos_fila = []
 
         fila_idx = 1
         for i, v in enumerate(ventas, 1):
             hora = v["fecha"][11:16]
             items = v.get("items", [])
+            descuento_v = v.get("descuento", 0) or 0
 
-            # Fila de cabecera de la venta
-            data.append([str(i), hora, "", "", "", "", f"Q{v['total']:.2f}"])
-            estilos_fila.append(("cabecera", fila_idx))
-            fila_idx += 1
-
-            for it in items:
-                data.append(["", "",
+            if items:
+                # Primera fila: cabecera + primer item
+                it = items[0]
+                desc_item = it.get("descuento", 0.0)
+                desc_txt = f"-Q{desc_item:.2f}" if desc_item > 0 else "—"
+                sub_final = max(0.0, it["subtotal"] - desc_item)
+                data.append([str(i), hora,
                              it["producto"],
                              str(it["cantidad"]),
                              f"Q{it['precio']:.2f}",
-                             f"Q{it['subtotal']:.2f}",
-                             ""])
+                             desc_txt,
+                             f"Q{sub_final:.2f}",
+                             f"Q{v['total']:.2f}"])
+                estilos_fila.append(("cabecera", fila_idx, desc_item > 0))
                 fila_idx += 1
 
+                # Resto de items
+                for it in items[1:]:
+                    desc_item = it.get("descuento", 0.0)
+                    desc_txt = f"-Q{desc_item:.2f}" if desc_item > 0 else "—"
+                    sub_final = max(0.0, it["subtotal"] - desc_item)
+                    data.append(["", "",
+                                 it["producto"],
+                                 str(it["cantidad"]),
+                                 f"Q{it['precio']:.2f}",
+                                 desc_txt,
+                                 f"Q{sub_final:.2f}",
+                                 ""])
+                    if desc_item > 0:
+                        estilos_fila.append(("item_descuento", fila_idx, True))
+                    fila_idx += 1
+            else:
+                data.append([str(i), hora, "", "", "", "",
+                             "—", f"Q{v['total']:.2f}"])
+                estilos_fila.append(("cabecera", fila_idx, False))
+                fila_idx += 1
+
+            if descuento_v > 0:
+                total_descuentos += descuento_v
             total_dia += v["total"]
 
-        # ── Filas de pagos de fiados de hoy ───────────────────────────────
+        # Filas de pagos de fiados de hoy
         fiados_pagados_hoy = [f for f in fiados if f["estado"] == "pagado"]
         filas_pagos = []
         for f in fiados_pagados_hoy:
-            hora_pago = f["fecha"][11:16]   # fecha ya viene con la hora del pago
+            hora_pago = f["fecha"][11:16]
             data.append(["💵", hora_pago,
                          f"{f['cliente']} pagó su deuda",
-                         "", "", "",
+                         "", "", "", "",
                          f"Q{f['total']:.2f}"])
             filas_pagos.append(fila_idx)
             total_pagos_fiados += f["total"]
             fila_idx += 1
 
-        # Total final (ventas + pagos de fiados)
         total_ingreso = total_dia + total_pagos_fiados
-        data.append(["", "", "", "", "", "TOTAL VENTAS DEL DÍA",
+        data.append(["", "", "", "", "", "", "TOTAL VENTAS DEL DÍA",
                      f"Q{total_ingreso:.2f}"])
 
         tabla = Table(data,
-            colWidths=[0.8*cm, 1.2*cm, 6.5*cm, 1.8*cm, 1.8*cm, 1.9*cm, 2*cm],
-            repeatRows=1)
+                      colWidths=[0.6 * cm, 1.1 * cm, 5.8 * cm, 1.5 * cm, 1.6 * cm, 1.7 * cm, 1.8 * cm, 1.9 * cm],
+                      repeatRows=1)
 
         estilo = [
             # Header
-            ("BACKGROUND",   (0,0), (-1,0), NAVY),
-            ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
-            ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTSIZE",     (0,0), (-1,0), 9),
-            ("ALIGN",        (0,0), (-1,0), "CENTER"),
-            ("ALIGN",        (2,0), (2,0), "LEFT"),
+            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 9),
+            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("ALIGN", (2, 0), (2, 0), "LEFT"),
             # Cuerpo
-            ("FONTSIZE",     (0,1), (-1,-2), 8),
-            ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
-            ("ALIGN",        (0,1), (1,-2), "CENTER"),
-            ("ALIGN",        (3,1), (5,-2), "CENTER"),
-            ("ALIGN",        (5,1), (5,-2), "RIGHT"),
-            ("ALIGN",        (6,1), (6,-2), "RIGHT"),
-            ("GRID",         (0,0), (-1,-2), 0.3, colors.HexColor("#e2e8f0")),
+            ("FONTSIZE", (0, 1), (-1, -2), 8),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 1), (1, -2), "CENTER"),
+            ("ALIGN", (3, 1), (6, -2), "CENTER"),
+            ("ALIGN", (5, 1), (5, -2), "RIGHT"),
+            ("ALIGN", (6, 1), (6, -2), "CENTER"),
+            ("ALIGN", (7, 1), (7, -2), "RIGHT"),
+            ("GRID", (0, 0), (-1, -2), 0.3, colors.HexColor("#e2e8f0")),
             # Total final
-            ("BACKGROUND",   (0,-1), (-1,-1), colors.HexColor("#f0f4f8")),
-            ("FONTNAME",     (0,-1), (-1,-1), "Helvetica-Bold"),
-            ("FONTSIZE",     (0,-1), (-1,-1), 10),
-            ("TEXTCOLOR",    (0,-1), (-1,-1), NAVY),
-            ("ALIGN",        (5,-1), (5,-1), "RIGHT"),
-            ("ALIGN",        (6,-1), (6,-1), "RIGHT"),
-            ("LINEABOVE",    (0,-1), (-1,-1), 2, ORANGE),
-            ("TOPPADDING",   (0,-1), (-1,-1), 8),
-            ("BOTTOMPADDING",(0,-1), (-1,-1), 8),
+            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f0f4f8")),
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, -1), (-1, -1), 10),
+            ("TEXTCOLOR", (0, -1), (-1, -1), NAVY),
+            ("ALIGN", (6, -1), (6, -1), "RIGHT"),
+            ("ALIGN", (7, -1), (7, -1), "RIGHT"),
+            ("LINEABOVE", (0, -1), (-1, -1), 2, ORANGE),
+            ("TOPPADDING", (0, -1), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, -1), (-1, -1), 8),
         ]
 
-        # Cabeceras de ventas
-        for tipo, idx in estilos_fila:
+        # Estilos por tipo de fila
+        for tipo, idx, tiene_desc in estilos_fila:
             if tipo == "cabecera":
                 estilo.append(("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#f0f4f8")))
-                estilo.append(("FONTNAME",   (0, idx), (-1, idx), "Helvetica-Bold"))
-                estilo.append(("TEXTCOLOR",  (0, idx), (-1, idx), NAVY))
-                estilo.append(("TEXTCOLOR",  (6, idx), (6, idx), ORANGE))
-                estilo.append(("FONTSIZE",   (0, idx), (-1, idx), 9))
+                estilo.append(("FONTNAME", (0, idx), (-1, idx), "Helvetica-Bold"))
+                estilo.append(("TEXTCOLOR", (0, idx), (-1, idx), NAVY))
+                estilo.append(("TEXTCOLOR", (7, idx), (7, idx), ORANGE))
+                estilo.append(("FONTSIZE", (0, idx), (-1, idx), 9))
+                if tiene_desc:
+                    estilo.append(("TEXTCOLOR", (5, idx), (5, idx), colors.HexColor("#dc2626")))  # ← col 5 = Descuento
+                    estilo.append(("FONTNAME", (5, idx), (5, idx), "Helvetica-Bold"))
+            elif tipo == "item_descuento":
+                estilo.append(("TEXTCOLOR", (5, idx), (5, idx), colors.HexColor("#dc2626")))  # ← col 5 = Descuento
+                estilo.append(("FONTNAME", (5, idx), (5, idx), "Helvetica-Bold"))
 
-        # Filas de pagos de fiados (verde para destacar el ingreso)
+        # Filas de pagos de fiados (verde)
         for idx in filas_pagos:
             estilo.append(("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#ecfdf5")))
-            estilo.append(("FONTNAME",   (0, idx), (-1, idx), "Helvetica-Bold"))
-            estilo.append(("TEXTCOLOR",  (0, idx), (-1, idx), colors.HexColor("#166534")))
-            estilo.append(("TEXTCOLOR",  (6, idx), (6, idx), colors.HexColor("#15803d")))
-            estilo.append(("FONTSIZE",   (0, idx), (-1, idx), 9))
-            estilo.append(("ALIGN",      (2, idx), (2, idx), "LEFT"))
+            estilo.append(("FONTNAME", (0, idx), (-1, idx), "Helvetica-Bold"))
+            estilo.append(("TEXTCOLOR", (0, idx), (-1, idx), colors.HexColor("#166534")))
+            estilo.append(("TEXTCOLOR", (7, idx), (7, idx), colors.HexColor("#15803d")))
+            estilo.append(("FONTSIZE", (0, idx), (-1, idx), 9))
+            estilo.append(("ALIGN", (2, idx), (2, idx), "LEFT"))
 
         tabla.setStyle(TableStyle(estilo))
         elements.append(tabla)
@@ -230,16 +255,14 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
         fila_idx = 1
 
         for f in fiados:
-            hora = f["fecha"][11:16]
+            hora   = f["fecha"][11:16]
             estado = "Pagado" if f["estado"] == "pagado" else "Pendiente"
-            items = f.get("items", [])
+            items  = f.get("items", [])
 
-            # Fila cabecera del fiado
             data_fi.append([hora, f["cliente"], "", "", "", "", estado, f"Q{f['total']:.2f}"])
             cabeceras_fi.append((fila_idx, f["estado"]))
             fila_idx += 1
 
-            # Items
             for it in items:
                 data_fi.append(["", "",
                                 it["producto"],
@@ -251,7 +274,6 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
 
             total_fiados += f["total"]
 
-        # Total
         data_fi.append(["", "", "", "", "", "", "TOTAL FIADOS", f"Q{total_fiados:.2f}"])
 
         tabla_fi = Table(data_fi,
@@ -259,14 +281,12 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
             repeatRows=1)
 
         estilo_fi = [
-            # Header
             ("BACKGROUND",    (0,0), (-1,0), NAVY),
             ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
             ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
             ("FONTSIZE",      (0,0), (-1,0), 8.5),
             ("ALIGN",         (0,0), (-1,0), "CENTER"),
             ("ALIGN",         (2,0), (2,0), "LEFT"),
-            # Cuerpo
             ("FONTSIZE",      (0,1), (-1,-2), 8),
             ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
             ("ALIGN",         (0,1), (1,-2), "CENTER"),
@@ -274,7 +294,6 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
             ("ALIGN",         (5,1), (5,-2), "RIGHT"),
             ("ALIGN",         (7,1), (7,-2), "RIGHT"),
             ("GRID",          (0,0), (-1,-2), 0.3, colors.HexColor("#e2e8f0")),
-            # Total
             ("BACKGROUND",    (0,-1), (-1,-1), colors.HexColor("#f0f4f8")),
             ("FONTNAME",      (0,-1), (-1,-1), "Helvetica-Bold"),
             ("FONTSIZE",      (0,-1), (-1,-1), 10),
@@ -286,14 +305,12 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
             ("BOTTOMPADDING", (0,-1), (-1,-1), 8),
         ]
 
-        # Estilo a las cabeceras de cada fiado
         for idx, estado in cabeceras_fi:
             estilo_fi.append(("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#f0f4f8")))
             estilo_fi.append(("FONTNAME",   (0, idx), (-1, idx), "Helvetica-Bold"))
             estilo_fi.append(("TEXTCOLOR",  (0, idx), (-1, idx), NAVY))
             estilo_fi.append(("TEXTCOLOR",  (7, idx), (7, idx), ORANGE))
             estilo_fi.append(("FONTSIZE",   (0, idx), (-1, idx), 9))
-            # color del estado según si pagado o pendiente
             color_estado = colors.HexColor("#16a34a") if estado == "pagado" else colors.HexColor("#b45309")
             estilo_fi.append(("TEXTCOLOR",  (6, idx), (6, idx), color_estado))
 
@@ -303,21 +320,21 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
     # ── Resumen final ─────────────────────────────────────────────────────────
     elements.append(Spacer(1, 0.5*cm))
 
-    # Solo los fiados que quedaron pendientes hoy (no los pagados)
     total_fiados_pendientes = sum(
         f["total"] for f in fiados if f["estado"] == "pendiente"
     )
 
     ingresos = total_dia + total_pagos_fiados
-    neto = ingresos - total_gastos
+    neto     = ingresos - total_gastos
 
     resumen_data = [
-        ["Total ventas",         f"+Q{total_dia:.2f}"],
-        ["Pagos de fiados hoy",  f"+Q{total_pagos_fiados:.2f}"],
-        ["Ingreso total",        f"Q{ingresos:.2f}"],
-        ["Total gastos",         f"-Q{total_gastos:.2f}"],
-        ["Fiados pendientes hoy",f"Q{total_fiados_pendientes:.2f}"],
-        ["NETO DEL DÍA",         f"Q{neto:.2f}"],
+        ["Total ventas (bruto)",  f"+Q{total_dia + total_descuentos:.2f}"],
+        ["Descuentos aplicados",  f"-Q{total_descuentos:.2f}"],
+        ["Pagos de fiados hoy",   f"+Q{total_pagos_fiados:.2f}"],
+        ["Ingreso total",         f"Q{ingresos:.2f}"],
+        ["Total gastos",          f"-Q{total_gastos:.2f}"],
+        ["Fiados pendientes hoy", f"Q{total_fiados_pendientes:.2f}"],
+        ["NETO DEL DÍA",          f"Q{neto:.2f}"],
     ]
 
     resumen = Table(resumen_data, colWidths=[10*cm, 5*cm])
@@ -328,20 +345,22 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
         ("TEXTCOLOR", (0,0), (-1,-2), colors.HexColor("#374151")),
         ("TOPPADDING",    (0,0), (-1,-2), 3),
         ("BOTTOMPADDING", (0,0), (-1,-2), 3),
-
-        # Ingresos (verde)
-        ("TEXTCOLOR", (1,0), (1,1), colors.HexColor("#15803d")),
+        # Ventas bruto (verde)
+        ("TEXTCOLOR", (1,0), (1,0), colors.HexColor("#15803d")),
+        # Descuentos (rojo)
+        ("TEXTCOLOR", (1,1), (1,1), colors.HexColor("#dc2626")),
+        # Pagos fiados (verde)
+        ("TEXTCOLOR", (1,2), (1,2), colors.HexColor("#15803d")),
         # Ingreso total (bold navy)
-        ("FONTNAME",  (0,2), (-1,2), "Helvetica-Bold"),
-        ("TEXTCOLOR", (0,2), (-1,2), NAVY),
-        ("LINEABOVE", (0,2), (-1,2), 0.5, colors.HexColor("#e2e8f0")),
+        ("FONTNAME",  (0,3), (-1,3), "Helvetica-Bold"),
+        ("TEXTCOLOR", (0,3), (-1,3), NAVY),
+        ("LINEABOVE", (0,3), (-1,3), 0.5, colors.HexColor("#e2e8f0")),
         # Gastos (rojo)
-        ("TEXTCOLOR", (1,3), (1,3), colors.HexColor("#b91c1c")),
-        # Fiados pendientes (naranja informativo)
-        ("TEXTCOLOR", (0,4), (-1,4), colors.HexColor("#b45309")),
-        ("FONTSIZE",  (0,4), (-1,4), 9),
-
-        # NETO DEL DÍA — destacado
+        ("TEXTCOLOR", (1,4), (1,4), colors.HexColor("#b91c1c")),
+        # Fiados pendientes (naranja)
+        ("TEXTCOLOR", (0,5), (-1,5), colors.HexColor("#b45309")),
+        ("FONTSIZE",  (0,5), (-1,5), 9),
+        # NETO DEL DÍA
         ("BACKGROUND",(0,-1), (-1,-1), NAVY),
         ("TEXTCOLOR", (0,-1), (-1,-1), colors.white),
         ("FONTNAME",  (0,-1), (-1,-1), "Helvetica-Bold"),
@@ -351,7 +370,6 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
     ]))
     elements.append(resumen)
 
-    # Nota aclaratoria
     elements.append(Spacer(1, 0.2*cm))
     elements.append(Paragraph(
         "* Los fiados pendientes no afectan el neto hasta que el cliente pague.",
@@ -369,12 +387,8 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
     return ruta
 
 
-# ── Enviar por WhatsApp usando form-data ──────────────────────────────────────
+# ── Enviar por WhatsApp ───────────────────────────────────────────────────────
 def enviar_reporte_whatsapp(ruta_pdf, numero=WA_NUMERO):
-    """
-    Envía el PDF adjunto al WhatsApp del número indicado.
-    Usa el endpoint /enviar-archivo con multipart/form-data.
-    """
     try:
         fecha = datetime.now().strftime("%d/%m/%Y")
         caption = (f"📊 Reporte Soluciones Plus\n"
@@ -382,13 +396,8 @@ def enviar_reporte_whatsapp(ruta_pdf, numero=WA_NUMERO):
                    f"Reporte del día adjunto.")
 
         with open(ruta_pdf, "rb") as f:
-            files = {
-                "file": (os.path.basename(ruta_pdf), f, "application/pdf")
-            }
-            data = {
-                "number":  numero,
-                "caption": caption,
-            }
+            files = {"file": (os.path.basename(ruta_pdf), f, "application/pdf")}
+            data  = {"number": numero, "caption": caption}
             r = requests.post(WA_URL_ARCHIVO, files=files, data=data, timeout=30)
 
         if r.status_code == 200:

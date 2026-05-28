@@ -1,9 +1,10 @@
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, create_engine
-from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.orm import DeclarativeBase, relationship, sessionmaker
 import pymysql
 pymysql.install_as_MySQLdb()
+#import psycopg2
 
-# ── Cambia estos datos por los tuyos ─────────────────────────────────────────
+# ── MySQL ─────────────────────────────────────────>
 MYSQL_USER     = "root"
 MYSQL_PASSWORD = "adminsp"
 MYSQL_HOST     = "127.0.0.1"
@@ -15,6 +16,27 @@ ENGINE = create_engine(
     echo=False,
     pool_pre_ping=True
 )
+
+
+# ── SupaBase (PostgreSQL) ──────────────────────────>
+#DB_USER     = "postgres.peztfdsxxhysidjfwflt"  # Tu usuario de Supabase
+#DB_PASSWORD = "solucionesplus"                  # Tu contraseña
+#DB_HOST     = "aws-1-us-east-2.pooler.supabase.com"
+#DB_PORT     = "5432"
+#DB_NAME     = "postgres"
+
+# ✅ Connection string para PostgreSQL (NO mysql://)
+#DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+#ENGINE = create_engine(
+#    DATABASE_URL,
+#    echo=False,
+#    pool_pre_ping=True,
+    # ✅ Parámetros importantes para Supabase/PostgreSQL
+#    connect_args={"sslmode": "require"}  # Supabase requiere SSL
+#)
+#SessionLocal = sessionmaker(bind=ENGINE, autocommit=False, autoflush=False)*/
+
 
 class Base(DeclarativeBase):
     pass
@@ -30,18 +52,21 @@ class Producto(Base):
     id           = Column(Integer,     primary_key=True, autoincrement=True)
     categoria_id = Column(Integer,     ForeignKey("categorias.id"))
     nombre       = Column(String(150), nullable=False)
-    variante     = Column(String(150), default="")
+    #variante     = Column(String(150), default="")
     tipo         = Column(String(20),  default="Producto")  # Producto | Servicio
     precio       = Column(Float,       nullable=False)
     stock        = Column(Integer,     default=0)
     categoria    = relationship("Categoria",    back_populates="productos")
     detalles     = relationship("DetalleVenta", back_populates="producto")
+    mayoreos = relationship("ProductosMayoreo", back_populates="producto",
+                                  cascade="all, delete-orphan")
 
 class Venta(Base):
     __tablename__ = "ventas"
     id       = Column(Integer,    primary_key=True, autoincrement=True)
     fecha    = Column(String(30), nullable=False)
     total    = Column(Float,      nullable=False)
+    descuento = Column(Float, default=0.0)
     detalles = relationship("DetalleVenta", back_populates="venta")
 
 class DetalleVenta(Base):
@@ -52,6 +77,7 @@ class DetalleVenta(Base):
     cantidad    = Column(Integer, nullable=False)
     precio_unit = Column(Float,   nullable=False)
     subtotal    = Column(Float,   nullable=False)
+    descuento = Column(Float, default=0.0)
     venta       = relationship("Venta",    back_populates="detalles")
     producto    = relationship("Producto", back_populates="detalles")
 
@@ -85,3 +111,12 @@ class FiadoItem(Base):
     precio    = Column(Float,       nullable=False)
     subtotal  = Column(Float,       nullable=False)
     fiado     = relationship("Fiado", back_populates="items")
+
+
+class ProductosMayoreo(Base):
+    __tablename__ = "producto_mayoreo"
+    id          = Column(Integer,     primary_key=True, autoincrement=True)
+    producto_id = Column(Integer,     ForeignKey("productos.id"), nullable=False)
+    nombre      = Column(String(50),  nullable=False)   # unidad, resma, caja, etc.
+    precio      = Column(Float,       nullable=False)
+    producto    = relationship("Producto", back_populates="mayoreos")

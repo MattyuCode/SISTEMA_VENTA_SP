@@ -37,9 +37,10 @@ class HistorialFrame(ctk.CTkFrame):
         ctk.CTkFrame(top, height=4, corner_radius=0, fg_color=NAVY).pack(fill="x")
 
         self.tree = ttk.Treeview(top,
-            columns=("ID","Fecha","Total","Productos"),
+            columns=("ID", "Fecha", "Total", "Descuento", "Productos"),
             show="headings", height=8)
-        for col, w in zip(("ID","Fecha","Total","Productos"), [50, 160, 90, 500]):
+        for col, w in zip(("ID", "Fecha", "Total", "Descuento", "Productos"),
+                           [50, 160, 90, 90, 400]):
             self.tree.heading(col, text=col)
             self.tree.column(col, width=w, anchor="center")
         self.tree.pack(fill="x", padx=1, pady=1)
@@ -55,33 +56,44 @@ class HistorialFrame(ctk.CTkFrame):
                      text_color=NAVY).pack(anchor="w", padx=12, pady=(8, 4))
 
         self.det_tree = ttk.Treeview(det,
-            columns=("Producto","Cantidad","Precio unit.","Subtotal"),
-            show="headings", height=8)
-        for col in ("Producto","Cantidad","Precio unit.","Subtotal"):
+                                     columns=("Producto", "Cantidad", "Precio unit.", "Descuento", "Subtotal"),
+                                     show="headings", height=8)
+        for col, w in zip(("Producto", "Cantidad", "Precio unit.", "Descuento", "Subtotal"),
+                          [200, 80, 110, 100, 110]):
             self.det_tree.heading(col, text=col)
-            self.det_tree.column(col, width=170, anchor="center")
+            self.det_tree.column(col, width=w, anchor="center")
+        self.det_tree.tag_configure("con_descuento", foreground="#dc2626")
         self.det_tree.pack(fill="both", expand=True, padx=1, pady=(0, 1))
 
     def refresh(self):
         self.tree.delete(*self.tree.get_children())
         for v in get_ventas():
+            desc_txt = f"-Q{v['descuento']:.2f}" if v.get("descuento", 0) > 0 else "—"
             self.tree.insert("", "end", iid=v["id"], values=(
-                v["id"], v["fecha"], f"Q{v['total']:.2f}", v["resumen"]))
+                v["id"], v["fecha"], f"Q{v['total']:.2f}",
+                desc_txt, v["resumen"]))
 
     def mostrar_detalle(self, event):
         sel = self.tree.selection()
         if not sel: return
         self.det_tree.delete(*self.det_tree.get_children())
         for r in get_detalle_venta(int(sel[0])):
+            desc = r.get("descuento", 0.0) or 0.0
+            desc_txt = f"-Q{desc:.2f}" if desc > 0 else "—"
+            sub_final = max(0.0, r["subtotal"] - desc)
+            tag = "con_descuento" if desc > 0 else ""
             self.det_tree.insert("", "end", values=(
                 r["prod"], r["cantidad"],
-                f"Q{r['precio_unit']:.2f}", f"Q{r['subtotal']:.2f}"))
+                f"Q{r['precio_unit']:.2f}",
+                desc_txt,
+                f"Q{sub_final:.2f}"
+            ), tags=(tag,))
 
     def generar(self, solo_pdf=False):
         from frames.reporte import generar_pdf
         from database import get_ventas_hoy, get_fiados_hoy
 
-        hoy = datetime.now().strftime("%Y-%m-%d")
+        hoy           = datetime.now().strftime("%Y-%m-%d")
         ventas        = get_ventas_hoy(hoy)
         observaciones = get_observaciones_hoy(hoy)
         fiados        = get_fiados_hoy(hoy)
@@ -97,8 +109,7 @@ class HistorialFrame(ctk.CTkFrame):
             return
 
         if solo_pdf:
-            messagebox.showinfo("PDF generado",
-                f"PDF guardado en:\n{ruta}")
+            messagebox.showinfo("PDF generado", f"PDF guardado en:\n{ruta}")
             import subprocess
             subprocess.Popen(f'explorer /select,"{ruta}"')
             return
