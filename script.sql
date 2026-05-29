@@ -12,7 +12,7 @@
 -- insert into libreria.categorias(nombre) values ('Documentos');
 
 SET FOREIGN_KEY_CHECKS = 0; 
-TRUNCATE TABLE productos; 
+TRUNCATE TABLE detalle_venta; 
 SET FOREIGN_KEY_CHECKS = 1;
 
 

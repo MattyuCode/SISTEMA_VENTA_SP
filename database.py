@@ -96,6 +96,7 @@ def registrar_venta(fecha, total, items, descuento=0.0):
             s.add(DetalleVenta(
                 venta_id    = venta.id,
                 producto_id = it["producto_id"],
+                nombre_venta=it.get("nombre_venta", ""),
                 cantidad    = it["cantidad"],
                 precio_unit = it["precio_unit"],
                 subtotal    = it["subtotal"],
@@ -123,11 +124,11 @@ def get_detalle_venta(venta_id):
         rows = (s.query(DetalleVenta, Producto)
                   .join(Producto)
                   .filter(DetalleVenta.venta_id == venta_id).all())
-        return [{"prod": p.nombre,
+        return [{"prod": d.nombre_venta or p.nombre,
                  "cantidad": d.cantidad,
                  "precio_unit": d.precio_unit,
                  "subtotal": d.subtotal,
-                 "descuento": d.descuento or 0.0}   # ← agregar
+                 "descuento": d.descuento or 0.0}
                 for d, p in rows]
 
 
@@ -142,11 +143,11 @@ def get_ventas_hoy(fecha_prefix):
                          .join(Producto)
                          .filter(DetalleVenta.venta_id == v.id).all())
             items = [{
-                "producto": p.nombre,
+                "producto": d.nombre_venta or p.nombre,
                 "cantidad": d.cantidad,
                 "precio":   d.precio_unit,
                 "subtotal": d.subtotal,
-                "descuento": d.descuento or 0.0,    # ← incluir descuento por item
+                "descuento": d.descuento or 0.0,
             } for d, p in detalles]
             resumen = ", ".join(f"{it['producto']} x{it['cantidad']}" for it in items)
             result.append({"id": v.id, "fecha": v.fecha, "total": v.total,

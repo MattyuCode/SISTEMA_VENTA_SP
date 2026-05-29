@@ -74,6 +74,7 @@ class DetalleVenta(Base):
     id          = Column(Integer, primary_key=True, autoincrement=True)
     venta_id    = Column(Integer, ForeignKey("ventas.id"))
     producto_id = Column(Integer, ForeignKey("productos.id"))
+    nombre_venta = Column(String(200), default="")
     cantidad    = Column(Integer, nullable=False)
     precio_unit = Column(Float,   nullable=False)
     subtotal    = Column(Float,   nullable=False)

@@ -23,7 +23,7 @@ class VenderFrame(ctk.CTkFrame):
         self.pw.pack(fill="both", expand=True)
 
         self.frm_izq = ctk.CTkFrame(self.pw, fg_color=WHITE, corner_radius=10)
-        self.pw.add(self.frm_izq, minsize=280, width=430)
+        self.pw.add(self.frm_izq, minsize=280, width=500)
 
         self.frm_der = ctk.CTkFrame(self.pw, fg_color=WHITE, corner_radius=10)
         self.pw.add(self.frm_der, minsize=280)
@@ -36,7 +36,7 @@ class VenderFrame(ctk.CTkFrame):
         ctk.CTkFrame(parent, height=4, corner_radius=0, fg_color=NAVY).pack(fill="x")
 
         inner = ctk.CTkFrame(parent, fg_color="transparent")
-        inner.pack(fill="both", expand=True, padx=12, pady=10)
+        inner.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
         ctk.CTkLabel(inner, text="Buscar producto", text_color=NAVY,
                      font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", pady=(4, 2))
@@ -59,27 +59,15 @@ class VenderFrame(ctk.CTkFrame):
 
         self.buscar_var.trace_add("write", lambda *_: self.actualizar_lista())
 
-        # ── Panel de presentaciones ───────────────────────────────────────
-        self.pres_panel = ctk.CTkFrame(inner, fg_color=GRAY_BG, corner_radius=8)
-        # No se hace pack aquí — aparece solo cuando hay presentaciones
-
-        self.pres_nombre_lbl = ctk.CTkLabel(self.pres_panel, text="",
-                                             font=ctk.CTkFont(size=12, weight="bold"),
-                                             text_color=NAVY)
-        self.pres_nombre_lbl.pack(anchor="w", padx=10, pady=(8, 4))
-
-        self.pres_botones_frame = ctk.CTkFrame(self.pres_panel, fg_color="transparent")
-        self.pres_botones_frame.pack(fill="x", padx=10, pady=(0, 8))
-
         # ── Lista con scrollbar ───────────────────────────────────────────
         lista_frame = ctk.CTkFrame(inner, fg_color="transparent")
         lista_frame.pack(fill="both", expand=True, pady=6)
 
         cols = ("Producto", "Precio", "Stock")
         self.lista = ttk.Treeview(lista_frame, columns=cols, show="headings", height=13)
-        for col, w in zip(cols, [220, 90, 80]):
+        for col, w, anchor in zip(cols, [220, 90, 80], ["w", "center", "center"]):
             self.lista.heading(col, text=col)
-            self.lista.column(col, width=w, anchor="center")
+            self.lista.column(col, width=w, anchor=anchor)
         self.lista.tag_configure("servicio", foreground="#7c3aed")
 
         sb = ctk.CTkScrollbar(lista_frame, command=self.lista.yview)
@@ -89,9 +77,13 @@ class VenderFrame(ctk.CTkFrame):
         self.lista.bind("<<TreeviewSelect>>", self._on_producto_sel)
         self.lista.bind("<Double-1>", lambda e: self.agregar_al_carrito())
 
-        # ── Cantidad ──────────────────────────────────────────────────────
-        cf = ctk.CTkFrame(inner, fg_color="transparent")
-        cf.pack(fill="x", pady=(4, 6))
+        # ── Fila: Cantidad + Presentaciones ──────────────────────────────
+        bottom_row = ctk.CTkFrame(inner, fg_color="transparent")
+        bottom_row.pack(fill="x", pady=(4, 6))
+
+        # Cantidad (izquierda)
+        cf = ctk.CTkFrame(bottom_row, fg_color="transparent")
+        cf.pack(side="left")
         ctk.CTkLabel(cf, text="Cantidad:", text_color=NAVY,
                      font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=(0, 10))
         ctk.CTkButton(cf, text="−", width=36, height=36,
@@ -109,11 +101,24 @@ class VenderFrame(ctk.CTkFrame):
                       font=ctk.CTkFont(size=20, weight="bold"),
                       corner_radius=8, command=self.incrementar).pack(side="left")
 
+        # Panel presentaciones (derecha)
+        self.pres_panel = ctk.CTkFrame(bottom_row, fg_color=GRAY_BG, corner_radius=8)
+        # No se hace pack aquí
+
+        self.pres_nombre_lbl = ctk.CTkLabel(self.pres_panel, text="",
+                                            font=ctk.CTkFont(size=10, weight="bold"),
+                                            text_color=NAVY)
+        self.pres_nombre_lbl.pack(anchor="w", padx=8, pady=(4, 2))
+
+        self.pres_botones_frame = ctk.CTkFrame(self.pres_panel, fg_color="transparent")
+        self.pres_botones_frame.pack(fill="x", padx=8, pady=(0, 6))
+
+        # ── Botón agregar (siempre al final) ──────────────────────────────
         ctk.CTkButton(inner, text="➕  Agregar al carrito", height=38,
                       fg_color=ORANGE, hover_color="#ea6c0a",
                       font=ctk.CTkFont(size=13, weight="bold"),
                       command=self.agregar_al_carrito
-                      ).pack(fill="x", side="bottom", pady=(4, 0))
+                      ).pack(fill="x", pady=(0, 0))
 
     # ── Panel derecho ─────────────────────────────────────────────────────────
     def _build_panel_der(self, parent):
@@ -128,9 +133,9 @@ class VenderFrame(ctk.CTkFrame):
 
         cols = ("Producto", "Cant", "Precio", "Descuento", "Subtotal")
         self.carrito_tree = ttk.Treeview(inner, columns=cols, show="headings", height=13)
-        for col, w in zip(cols, [180, 50, 80, 80, 90]):
+        for col, w, anchor in zip(cols, [180, 50, 80, 80, 90], ["w", "center", "center", "center", "center"]):
             self.carrito_tree.heading(col, text=col)
-            self.carrito_tree.column(col, width=w, anchor="center")
+            self.carrito_tree.column(col, width=w, anchor=anchor)
         self.carrito_tree.tag_configure("con_descuento", foreground="#dc2626")
         self.carrito_tree.pack(fill="both", expand=True, pady=4)
         self.carrito_tree.bind("<Delete>", lambda e: self.quitar_del_carrito())
@@ -206,7 +211,7 @@ class VenderFrame(ctk.CTkFrame):
             self._pres_seleccionada = None
             return
 
-        pid  = int(sel[0])
+        pid = int(sel[0])
         vals = self.lista.item(pid, "values")
         presentaciones = get_mayoreos(pid)
 
@@ -219,7 +224,7 @@ class VenderFrame(ctk.CTkFrame):
             return
 
         self.pres_nombre_lbl.configure(text=f"Unidad y Mayor — {vals[0]}")
-        self.pres_panel.pack(fill="x", pady=(0, 4))
+        self.pres_panel.pack(side="left", fill="x", expand=True, padx=(12, 0))  # ← solo una vez
 
         precio_base = float(vals[1].replace("Q", ""))
         primera = True
@@ -229,27 +234,28 @@ class VenderFrame(ctk.CTkFrame):
             primera = False
 
         for p in presentaciones:
-            self._crear_boton_pres(p["nombre"], p["precio"],
-                                    seleccionado=(primera))
+            self._crear_boton_pres(p["nombre"], p["precio"], seleccionado=primera)
             if primera:
                 self._pres_seleccionada = {"nombre": p["nombre"], "precio": p["precio"]}
                 primera = False
+        # ← eliminar el segundo pack que estaba aquí
+
 
     def _crear_boton_pres(self, nombre, precio, seleccionado=False):
         btn = ctk.CTkButton(
             self.pres_botones_frame,
             text=f"{nombre}\nQ{precio:.2f}",
-            width=90, height=50,
-            corner_radius=8,
+            width=100, height=30,
+            corner_radius=6,
             fg_color=ORANGE if seleccionado else "transparent",
             text_color=WHITE if seleccionado else NAVY,
             border_width=1,
             border_color=ORANGE if seleccionado else NAVY,
             hover_color="#ea6c0a",
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(size=10),
             command=lambda n=nombre, p=precio: self._sel_pres(n, p)
         )
-        btn.pack(side="left", padx=(0, 6))
+        btn.pack(side="left", padx=(0, 4))
 
     def _sel_pres(self, nombre, precio):
         self._pres_seleccionada = {"nombre": nombre, "precio": precio}
@@ -398,6 +404,7 @@ class VenderFrame(ctk.CTkFrame):
 
         fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         items = [{"producto_id": i["producto_id"],
+                  "nombre_venta": i["nombre"],
                   "cantidad":    i["cantidad"],
                   "precio_unit": i["precio"],
                   "subtotal":    i["precio"] * i["cantidad"],
