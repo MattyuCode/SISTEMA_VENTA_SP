@@ -1,15 +1,17 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
 from datetime import datetime, date, timedelta
-from tkcalendar import DateEntry
 from database import get_ventas, get_detalle_venta, get_observaciones_hoy
 from config import *
+from frames.ctk_calendar import CTkCalendar
 
 
 class HistorialFrame(ctk.CTkFrame):
     def __init__(self, parent, app):
         super().__init__(parent, fg_color="transparent")
         self.app = app
+        self._fecha_sel = date.today()
+        self._cal_popup = None
 
         # ── Barra superior con botón de reporte ───────────────────────────
         top_bar = ctk.CTkFrame(self, fg_color="transparent")
@@ -32,28 +34,28 @@ class HistorialFrame(ctk.CTkFrame):
                       command=lambda: self.generar(solo_pdf=True)).pack(
                       side="right", padx=(0, 8))
 
-        # ── Selector de fecha en la misma fila ────────────────────────────
-        ctk.CTkButton(top_bar, text="Ayer", width=60, height=28,
+        # ── Botones Hoy / Ayer ────────────────────────────────────────────
+        ctk.CTkButton(top_bar, text="Ayer", width=55, height=28,
                       fg_color="transparent", border_width=1, border_color=BORDER,
                       text_color=NAVY, hover_color=GRAY_BG,
-                      command=self._set_ayer).pack(side="right", padx=(0, 6))
+                      command=self._set_ayer).pack(side="right", padx=(0, 4))
 
-        ctk.CTkButton(top_bar, text="Hoy", width=60, height=28,
+        ctk.CTkButton(top_bar, text="Hoy", width=55, height=28,
                       fg_color="transparent", border_width=1, border_color=BORDER,
                       text_color=NAVY, hover_color=GRAY_BG,
                       command=self._set_hoy).pack(side="right", padx=(0, 6))
 
-        self.cal = DateEntry(top_bar,
-                             width=12,
-                             background="#0d2b55",
-                             foreground="white",
-                             borderwidth=2,
-                             date_pattern="yyyy-mm-dd",
-                             maxdate=date.today(),
-                             font=("Segoe UI", 11))
-        self.cal.pack(side="right", padx=(0, 6))
+        # ── Botón calendario ──────────────────────────────────────────────
+        self.fecha_btn = ctk.CTkButton(top_bar,
+                         text=f"📅  {date.today().strftime('%d/%m/%Y')}",
+                         width=140, height=28,
+                         fg_color="transparent", border_width=1, border_color=BORDER,
+                         text_color=NAVY, hover_color=GRAY_BG,
+                         font=ctk.CTkFont(size=12),
+                         command=self._toggle_cal)
+        self.fecha_btn.pack(side="right", padx=(0, 6))
 
-        ctk.CTkLabel(top_bar, text="📅  Fecha del reporte:",
+        ctk.CTkLabel(top_bar, text="Fecha:",
                      text_color=NAVY,
                      font=ctk.CTkFont(size=13, weight="bold")).pack(side="right", padx=(0, 6))
 
@@ -96,19 +98,52 @@ class HistorialFrame(ctk.CTkFrame):
         self.det_tree.tag_configure("con_descuento", foreground="#dc2626")
         self.det_tree.pack(fill="both", expand=True, padx=1, pady=(0, 1))
 
+    # ── Calendario popup ──────────────────────────────────────────────────────
+    def _toggle_cal(self):
+        if self._cal_popup and self._cal_popup.winfo_exists():
+            self._cal_popup.destroy()
+            self._cal_popup = None
+            return
+
+        self._cal_popup = ctk.CTkToplevel(self)
+        self._cal_popup.overrideredirect(True)
+        self._cal_popup.attributes("-topmost", True)
+
+        cal = CTkCalendar(self._cal_popup, max_date=date.today())
+        cal.set_date(self._fecha_sel)
+        cal.pack()
+
+        self._cal_popup.update_idletasks()
+        x = self.fecha_btn.winfo_rootx()
+        y = self.fecha_btn.winfo_rooty() + self.fecha_btn.winfo_height() + 4
+        self._cal_popup.geometry(f"+{x}+{y}")
+
+        _orig = cal._select
+        def _select_wrap(d):
+            _orig(d)
+            self._fecha_sel = cal.get_date()
+            self.fecha_btn.configure(
+                text=f"📅  {self._fecha_sel.strftime('%d/%m/%Y')}")
+            self._cal_popup.destroy()
+            self._cal_popup = None
+        cal._select = _select_wrap
+
     # ── Helpers de fecha ──────────────────────────────────────────────────────
     def _set_hoy(self):
-        self.cal.set_date(date.today())
+        self._fecha_sel = date.today()
+        self.fecha_btn.configure(
+            text=f"📅  {self._fecha_sel.strftime('%d/%m/%Y')}")
 
     def _set_ayer(self):
-        self.cal.set_date(date.today() - timedelta(days=1))
+        self._fecha_sel = date.today() - timedelta(days=1)
+        self.fecha_btn.configure(
+            text=f"📅  {self._fecha_sel.strftime('%d/%m/%Y')}")
 
     def _get_fecha_seleccionada(self):
-        fecha = self.cal.get_date()
-        if fecha > date.today():
+        if self._fecha_sel > date.today():
             messagebox.showwarning("Aviso", "No puedes seleccionar fechas futuras.")
             return None
-        return fecha.strftime("%Y-%m-%d")
+        return self._fecha_sel.strftime("%Y-%m-%d")
 
     # ── Refresh y detalle ─────────────────────────────────────────────────────
     def refresh(self):

@@ -133,7 +133,7 @@ class PrecioDocumentos(Base):
 
 
 class PrecioMantemiento(Base):
-    __tablename__ = "precio_mantemiento"
+    __tablename__ = "precio_mantenimiento"
     id = Column(Integer, primary_key=True, autoincrement=True)
     nombre = Column(String(200), nullable=False)
     precio = Column(Float, nullable=False)
