@@ -1,8 +1,10 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
-from datetime import datetime
+from datetime import datetime, date, timedelta
+from tkcalendar import DateEntry
 from database import get_ventas, get_detalle_venta, get_observaciones_hoy
 from config import *
+
 
 class HistorialFrame(ctk.CTkFrame):
     def __init__(self, parent, app):
@@ -30,6 +32,31 @@ class HistorialFrame(ctk.CTkFrame):
                       command=lambda: self.generar(solo_pdf=True)).pack(
                       side="right", padx=(0, 8))
 
+        # ── Selector de fecha en la misma fila ────────────────────────────
+        ctk.CTkButton(top_bar, text="Ayer", width=60, height=28,
+                      fg_color="transparent", border_width=1, border_color=BORDER,
+                      text_color=NAVY, hover_color=GRAY_BG,
+                      command=self._set_ayer).pack(side="right", padx=(0, 6))
+
+        ctk.CTkButton(top_bar, text="Hoy", width=60, height=28,
+                      fg_color="transparent", border_width=1, border_color=BORDER,
+                      text_color=NAVY, hover_color=GRAY_BG,
+                      command=self._set_hoy).pack(side="right", padx=(0, 6))
+
+        self.cal = DateEntry(top_bar,
+                             width=12,
+                             background="#0d2b55",
+                             foreground="white",
+                             borderwidth=2,
+                             date_pattern="yyyy-mm-dd",
+                             maxdate=date.today(),
+                             font=("Segoe UI", 11))
+        self.cal.pack(side="right", padx=(0, 6))
+
+        ctk.CTkLabel(top_bar, text="📅  Fecha del reporte:",
+                     text_color=NAVY,
+                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="right", padx=(0, 6))
+
         # ── Tabla ventas ──────────────────────────────────────────────────
         top = ctk.CTkFrame(self, fg_color=WHITE, corner_radius=10,
                            border_width=1, border_color=BORDER)
@@ -39,10 +66,12 @@ class HistorialFrame(ctk.CTkFrame):
         self.tree = ttk.Treeview(top,
             columns=("ID", "Fecha", "Total", "Descuento", "Productos"),
             show="headings", height=8)
-        for col, w in zip(("ID", "Fecha", "Total", "Descuento", "Productos"),
-                           [50, 160, 90, 90, 400]):
+        for col, w, anchor in zip(
+                ("ID", "Fecha", "Total", "Descuento", "Productos"),
+                [50, 160, 90, 90, 400],
+                ["center", "center", "center", "center", "w"]):
             self.tree.heading(col, text=col)
-            self.tree.column(col, width=w, anchor="center")
+            self.tree.column(col, width=w, anchor=anchor)
         self.tree.pack(fill="x", padx=1, pady=1)
         self.tree.bind("<<TreeviewSelect>>", self.mostrar_detalle)
 
@@ -56,15 +85,32 @@ class HistorialFrame(ctk.CTkFrame):
                      text_color=NAVY).pack(anchor="w", padx=12, pady=(8, 4))
 
         self.det_tree = ttk.Treeview(det,
-                                     columns=("Producto", "Cantidad", "Precio unit.", "Descuento", "Subtotal"),
-                                     show="headings", height=8)
-        for col, w in zip(("Producto", "Cantidad", "Precio unit.", "Descuento", "Subtotal"),
-                          [200, 80, 110, 100, 110]):
+            columns=("Producto", "Cantidad", "Precio unit.", "Descuento", "Subtotal"),
+            show="headings", height=8)
+        for col, w, anchor in zip(
+                ("Producto", "Cantidad", "Precio unit.", "Descuento", "Subtotal"),
+                [200, 80, 110, 100, 110],
+                ["w", "center", "center", "center", "center"]):
             self.det_tree.heading(col, text=col)
-            self.det_tree.column(col, width=w, anchor="center")
+            self.det_tree.column(col, width=w, anchor=anchor)
         self.det_tree.tag_configure("con_descuento", foreground="#dc2626")
         self.det_tree.pack(fill="both", expand=True, padx=1, pady=(0, 1))
 
+    # ── Helpers de fecha ──────────────────────────────────────────────────────
+    def _set_hoy(self):
+        self.cal.set_date(date.today())
+
+    def _set_ayer(self):
+        self.cal.set_date(date.today() - timedelta(days=1))
+
+    def _get_fecha_seleccionada(self):
+        fecha = self.cal.get_date()
+        if fecha > date.today():
+            messagebox.showwarning("Aviso", "No puedes seleccionar fechas futuras.")
+            return None
+        return fecha.strftime("%Y-%m-%d")
+
+    # ── Refresh y detalle ─────────────────────────────────────────────────────
     def refresh(self):
         self.tree.delete(*self.tree.get_children())
         for v in get_ventas():
@@ -78,10 +124,10 @@ class HistorialFrame(ctk.CTkFrame):
         if not sel: return
         self.det_tree.delete(*self.det_tree.get_children())
         for r in get_detalle_venta(int(sel[0])):
-            desc = r.get("descuento", 0.0) or 0.0
-            desc_txt = f"-Q{desc:.2f}" if desc > 0 else "—"
+            desc      = r.get("descuento", 0.0) or 0.0
+            desc_txt  = f"-Q{desc:.2f}" if desc > 0 else "—"
             sub_final = max(0.0, r["subtotal"] - desc)
-            tag = "con_descuento" if desc > 0 else ""
+            tag       = "con_descuento" if desc > 0 else ""
             self.det_tree.insert("", "end", values=(
                 r["prod"], r["cantidad"],
                 f"Q{r['precio_unit']:.2f}",
@@ -93,17 +139,20 @@ class HistorialFrame(ctk.CTkFrame):
         from frames.reporte import generar_pdf
         from database import get_ventas_hoy, get_fiados_hoy
 
-        hoy           = datetime.now().strftime("%Y-%m-%d")
-        ventas        = get_ventas_hoy(hoy)
-        observaciones = get_observaciones_hoy(hoy)
-        fiados        = get_fiados_hoy(hoy)
+        fecha = self._get_fecha_seleccionada()
+        if fecha is None: return
+
+        ventas        = get_ventas_hoy(fecha)
+        observaciones = get_observaciones_hoy(fecha)
+        fiados        = get_fiados_hoy(fecha)
 
         if not ventas and not observaciones and not fiados:
             messagebox.showinfo("Sin datos",
-                "No hay ventas, observaciones ni fiados registrados hoy."); return
+                f"No hay ventas, observaciones ni fiados registrados el {fecha}.")
+            return
 
         try:
-            ruta = generar_pdf(ventas, observaciones, fiados, hoy)
+            ruta = generar_pdf(ventas, observaciones, fiados, fecha)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo generar el PDF:\n{e}")
             return

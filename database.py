@@ -2,7 +2,8 @@ from contextlib import contextmanager
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from models import ENGINE, Base, Categoria, Producto, Venta, DetalleVenta, Fiado, FiadoItem, ProductosMayoreo
+from models import ENGINE, Base, Categoria, Producto, Venta, DetalleVenta, Fiado, FiadoItem, ProductosMayoreo, \
+    PrecioDocumentos, PrecioMantemiento
 from models import Observacion
 
 # ── Sesión ────────────────────────────────────────────────────────────────────
@@ -333,4 +334,77 @@ def guardar_mayoreos(producto_id, mayoreos):
                 producto_id=producto_id,
                 nombre=p["nombre"],
                 precio=p["precio"]))
+        s.commit()
+
+
+
+# ── Precio de documentos ───────────────────────────────────────────────────────────
+def get_precio_documentos():
+    with get_session() as s:
+        rows = s.query(PrecioDocumentos).order_by(PrecioDocumentos.id.asc()).all()
+        return [{"id": r.id, "nombre": r.nombre, "precio": r.precio,
+                 "precio_descargar": r.precio_descargar,
+                 "precio_validaciones": r.precio_validaciones,
+                 "link_validaciones": r.link_validaciones}
+                for r in rows]
+
+def get_precio_documento(fid):
+    with get_session() as s:
+        r = s.get(PrecioDocumentos, fid)
+        return {"id": r.id, "nombre": r.nombre, "precio": r.precio,
+                "precio_descargar": r.precio_descargar,
+                "precio_validaciones": r.precio_validaciones,
+                "link_validaciones": r.link_validaciones}
+
+def guardar_precio_documento(fid, nombre, precio, precio_descargar,
+                              precio_validaciones, link_validaciones):
+    with get_session() as s:
+        if fid is None:
+            s.add(PrecioDocumentos(nombre=nombre, precio=precio,
+                                   precio_descargar=precio_descargar,
+                                   precio_validaciones=precio_validaciones,
+                                   link_validaciones=link_validaciones))
+        else:
+            r = s.get(PrecioDocumentos, fid)
+            r.nombre               = nombre
+            r.precio               = precio
+            r.precio_descargar     = precio_descargar
+            r.precio_validaciones  = precio_validaciones
+            r.link_validaciones    = link_validaciones
+        s.commit()
+
+def eliminar_precio_documento(fid):
+    with get_session() as s:
+        s.delete(s.get(PrecioDocumentos, fid))
+        s.commit()
+
+
+# ── Precio de Mantenimiento ───────────────────────────────────────────────────────────
+
+def get_precio_mantenimientos():
+    with get_session() as s:
+        rows = s.query(PrecioMantemiento).order_by(PrecioMantemiento.id.asc()).all()
+        return [{"id": r.id, "nombre": r.nombre, "precio": r.precio, "observaciones": r.observaciones} for r in rows]
+
+def get_precio_mantenimiento(fid):
+    with get_session() as s:
+        r = s.get(PrecioMantemiento, fid)
+        return {"id": r.id, "nombre": r.nombre, "precio": r.precio,
+                "observaciones": r.observaciones}
+
+
+def guardar_precio_mantenimiento(fid, nombre, precio, observaciones):
+    with get_session() as s:
+        if fid is None:
+            s.add(PrecioMantemiento(nombre=nombre, precio=precio, observaciones=observaciones))
+        else:
+            r = s.get(PrecioMantemiento, fid)
+            r.nombre = nombre
+            r.precio = precio
+            r.observaciones = observaciones
+        s.commit()
+
+def eliminar_precio_mantenimiento(fid):
+    with get_session() as s:
+        s.delete(s.get(PrecioMantemiento, fid))
         s.commit()

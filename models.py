@@ -121,3 +121,20 @@ class ProductosMayoreo(Base):
     nombre      = Column(String(50),  nullable=False)   # unidad, resma, caja, etc.
     precio      = Column(Float,       nullable=False)
     producto    = relationship("Producto", back_populates="mayoreos")
+
+class PrecioDocumentos(Base):
+    __tablename__ = "precio_documentos"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nombre = Column(String(150), nullable=False)
+    precio = Column(Float, nullable=False)
+    precio_descargar = Column(Float, nullable=True)
+    precio_validaciones = Column(Float, nullable=True)
+    link_validaciones = Column(String(150), nullable=True)
+
+
+class PrecioMantemiento(Base):
+    __tablename__ = "precio_mantemiento"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nombre = Column(String(200), nullable=False)
+    precio = Column(Float, nullable=False)
+    observaciones = Column(String(255), nullable=True)

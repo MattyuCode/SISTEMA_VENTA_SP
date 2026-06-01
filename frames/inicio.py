@@ -51,9 +51,9 @@ class InicioFrame(ctk.CTkFrame):
 
         cols = ("Producto", "Categoría", "Stock", "Estado")
         tree = ttk.Treeview(tabla, columns=cols, show="headings", height=12)
-        for col, w in zip(cols, [260, 160, 70, 100]):
+        for col, w, anchor in zip(cols, [260, 160, 70, 100], ["w", "center", "center", "center"]):
             tree.heading(col, text=col)
-            tree.column(col, width=w, anchor="center")
+            tree.column(col, width=w, anchor=anchor)
         tree.tag_configure("sin_stock", foreground="#b91c1c")
         tree.tag_configure("bajo",      foreground="#b45309")
 

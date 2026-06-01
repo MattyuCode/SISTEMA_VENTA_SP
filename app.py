@@ -12,6 +12,7 @@ from frames.vender         import VenderFrame
 from frames.historial      import HistorialFrame
 from frames.observaciones  import ObservacionesFrame
 from frames.fiados         import FiadosFrame
+from frames.precios_doc_manteni import  PrecioDocumentosMantenimientosFrame
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
@@ -93,9 +94,10 @@ class LibreriaApp(ctk.CTk):
             ("📦  Inventario",       "inventario"),
             ("➕  Nuevo producto",   "nuevo_producto"),
             ("🛒  Vender",           "vender"),
-            ("💳  Fiados",           "fiados"),
             ("📋  Historial",        "historial"),
+            ("💳  Fiados", "fiados"),
             ("📝  Observaciones",    "observaciones"),
+            ("📄  Precios Doc y Mateni", "precios_doc_manteni"),
         ]
         for label, key in items:
             btn = ctk.CTkButton(
@@ -179,6 +181,7 @@ class LibreriaApp(ctk.CTk):
             "fiados":         FiadosFrame(self.inner, self),
             "historial":      HistorialFrame(self.inner, self),
             "observaciones":  ObservacionesFrame(self.inner, self),
+            "precios_doc_manteni": PrecioDocumentosMantenimientosFrame(self.inner, self),
         }
         self.show_frame("vender")
 
@@ -192,6 +195,7 @@ class LibreriaApp(ctk.CTk):
             "fiados":         "Fiados / Deudas de clientes",
             "historial":      "Historial de ventas",
             "observaciones":  "Observaciones del día",
+            "precios_doc_manteni": "Precios de documentos y Mantenimientos",
         }
         for f in self.frames.values():
             f.pack_forget()
