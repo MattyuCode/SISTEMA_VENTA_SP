@@ -23,10 +23,84 @@ def get_categorias():
 
 def get_categoria_id(nombre):
     with get_session() as s:
-        return s.query(Categoria).filter_by(nombre=nombre).first().id
+        cat = s.query(Categoria).filter_by(nombre=nombre).first()
+        if cat is None:
+            raise ValueError(f"Categoría '{nombre}' no existe en la base de datos.")
+        return cat.id
+
+def crear_categoria(nombre):
+    nombre = nombre.strip()
+    if not nombre:
+        raise ValueError("El nombre de la categoría no puede estar vacío.")
+    with get_session() as s:
+        if s.query(Categoria).filter_by(nombre=nombre).first():
+            raise ValueError(f"Ya existe una categoría llamada '{nombre}'.")
+        cat = Categoria(nombre=nombre)
+        s.add(cat)
+        s.commit()
+        return cat.id
+
+def editar_categoria(cid, nuevo_nombre):
+    nuevo_nombre = nuevo_nombre.strip()
+    if not nuevo_nombre:
+        raise ValueError("El nombre de la categoría no puede estar vacío.")
+    with get_session() as s:
+        if s.query(Categoria).filter(
+            Categoria.nombre == nuevo_nombre, Categoria.id != cid
+        ).first():
+            raise ValueError(f"Ya existe una categoría llamada '{nuevo_nombre}'.")
+        cat = s.get(Categoria, cid)
+        if cat is None:
+            raise ValueError(f"Categoría con ID {cid} no existe.")
+        cat.nombre = nuevo_nombre
+        s.commit()
+
+def eliminar_categoria(cid):
+    with get_session() as s:
+        count = s.query(Producto).filter_by(categoria_id=cid).count()
+        if count > 0:
+            raise ValueError(
+                f"No se puede eliminar: la categoría tiene {count} producto(s) asignado(s).\n"
+                "Reasigna o elimina los productos primero."
+            )
+        cat = s.get(Categoria, cid)
+        if cat is None:
+            raise ValueError("Categoría no encontrada.")
+        s.delete(cat)
+        s.commit()
+
+def sincronizar_producto_desde_doc(nombre, precio, cat_nombre):
+    """
+    Crea o actualiza un producto en inventario desde un precio_documento.
+    Retorna: 'creado' | 'actualizado'
+    """
+    with get_session() as s:
+        cat = s.query(Categoria).filter_by(nombre=cat_nombre).first()
+        if cat is None:
+            raise ValueError(f"Categoría '{cat_nombre}' no existe.")
+        prod = s.query(Producto).filter_by(nombre=nombre, categoria_id=cat.id).first()
+        if prod:
+            prod.precio = precio
+            s.commit()
+            return "actualizado"
+        else:
+            s.add(Producto(categoria_id=cat.id, nombre=nombre,
+                           tipo="Servicio", precio=precio, stock=0))
+            s.commit()
+            return "creado"
+
+def get_categorias_detalle():
+    """Retorna lista de dicts con id, nombre y cantidad de productos."""
+    with get_session() as s:
+        cats = s.query(Categoria).order_by(Categoria.id.asc()).all()
+        return [
+            {"id": c.id, "nombre": c.nombre,
+             "count": s.query(Producto).filter_by(categoria_id=c.id).count()}
+            for c in cats
+        ]
 
 # ── Productos ─────────────────────────────────────────────────────────────────
-def get_productos(buscar=""):
+def get_productos(buscar="", categoria=None):
     with get_session() as s:
         q = s.query(Producto, Categoria).join(Categoria)
         if buscar:
@@ -34,10 +108,15 @@ def get_productos(buscar=""):
                 Producto.nombre.ilike(f"%{buscar}%") |
                 Categoria.nombre.ilike(f"%{buscar}%")
             )
+        if categoria:
+            q = q.filter(Categoria.nombre == categoria)
         rows = q.order_by(Categoria.nombre, Producto.nombre).all()
         return [{"id": p.id, "cat": c.nombre, "nombre": p.nombre,
                  "precio": p.precio, "stock": p.stock, "tipo": p.tipo}
                 for p, c in rows]
+
+
+
 
 def get_productos_en_stock(buscar=""):
     with get_session() as s:
@@ -53,7 +132,11 @@ def get_productos_en_stock(buscar=""):
 def get_producto(pid):
     with get_session() as s:
         p = s.get(Producto, pid)
+        if p is None:
+            raise ValueError(f"Producto con ID {pid} no existe.")
         c = s.get(Categoria, p.categoria_id)
+        if c is None:
+            raise ValueError(f"La categoría del producto ID {pid} fue eliminada.")
         return {"id": p.id, "nombre": p.nombre, "precio": p.precio,
                 "stock": p.stock, "tipo": p.tipo,
                 "categoria_id": p.categoria_id, "cat": c.nombre}
@@ -61,16 +144,22 @@ def get_producto(pid):
 def crear_producto(cat_nombre, nombre, tipo, precio, stock):
     with get_session() as s:
         cat = s.query(Categoria).filter_by(nombre=cat_nombre).first()
+        if cat is None:
+            raise ValueError(f"Categoría '{cat_nombre}' no existe.")
         p = Producto(categoria_id=cat.id, nombre=nombre,
                      tipo=tipo, precio=precio, stock=stock)
         s.add(p)
         s.commit()
-        return p.id  # ← retornar el ID
+        return p.id
 
 def editar_producto(pid, cat_nombre, nombre, tipo, precio):
     with get_session() as s:
         cat = s.query(Categoria).filter_by(nombre=cat_nombre).first()
+        if cat is None:
+            raise ValueError(f"Categoría '{cat_nombre}' no existe.")
         p   = s.get(Producto, pid)
+        if p is None:
+            raise ValueError(f"Producto con ID {pid} no existe.")
         p.categoria_id = cat.id
         p.nombre       = nombre
         p.tipo         = tipo

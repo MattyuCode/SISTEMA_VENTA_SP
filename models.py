@@ -50,7 +50,7 @@ class Categoria(Base):
 class Producto(Base):
     __tablename__ = "productos"
     id           = Column(Integer,     primary_key=True, autoincrement=True)
-    categoria_id = Column(Integer,     ForeignKey("categorias.id"))
+    categoria_id = Column(Integer,     ForeignKey("categorias.id", ondelete="RESTRICT"))
     nombre       = Column(String(150), nullable=False)
     #variante     = Column(String(150), default="")
     tipo         = Column(String(20),  default="Producto")  # Producto | Servicio

@@ -51,7 +51,6 @@ class EditarProductoDialog(ctk.CTkToplevel):
                           width=140, height=32, corner_radius=8,
                           command=lambda: self._set_tipo("Servicio"))
         self.btn_servicio.pack(side="left")
-        self._set_tipo(self.tipo_var.get())
 
         # Nombre
         ctk.CTkLabel(body, text="Nombre", text_color=NAVY,
@@ -67,11 +66,14 @@ class EditarProductoDialog(ctk.CTkToplevel):
         self.e_precio.insert(0, str(row["precio"]))
         self.e_precio.pack(fill="x", pady=(2, 8))
 
-        # ── Precios de mayoreo ────────────────────────────────────────────
-        ctk.CTkLabel(body, text="💰  Precios de mayoreo", text_color=NAVY,
+        # ── Precios de mayoreo (contenedor ocultable) ─────────────────────
+        self.mayoreo_section = ctk.CTkFrame(body, fg_color="transparent")
+
+        ctk.CTkLabel(self.mayoreo_section, text="💰  Precios de mayoreo",
+                     text_color=NAVY,
                      font=ctk.CTkFont(weight="bold")).pack(anchor="w")
 
-        add_row = ctk.CTkFrame(body, fg_color=GRAY_BG, corner_radius=8)
+        add_row = ctk.CTkFrame(self.mayoreo_section, fg_color=GRAY_BG, corner_radius=8)
         add_row.pack(fill="x", pady=(4, 6))
         row_inner = ctk.CTkFrame(add_row, fg_color="transparent")
         row_inner.pack(padx=8, pady=6, fill="x")
@@ -95,7 +97,7 @@ class EditarProductoDialog(ctk.CTkToplevel):
                       font=ctk.CTkFont(size=11, weight="bold"),
                       command=self._agregar).pack(side="left")
 
-        self.pres_tree = ttk.Treeview(body,
+        self.pres_tree = ttk.Treeview(self.mayoreo_section,
                                       columns=("Mayoreo", "Precio"),
                                       show="headings", height=3)
         for col, w in zip(("Mayoreo", "Precio"), [180, 100]):
@@ -103,7 +105,7 @@ class EditarProductoDialog(ctk.CTkToplevel):
             self.pres_tree.column(col, width=w, anchor="center")
         self.pres_tree.pack(fill="x", pady=(0, 4))
 
-        ctk.CTkButton(body, text="🗑️ Quitar seleccionada",
+        ctk.CTkButton(self.mayoreo_section, text="🗑️ Quitar seleccionada",
                       fg_color="transparent", border_width=1, border_color=BORDER,
                       text_color=NAVY, hover_color=GRAY_BG, height=28,
                       command=self._quitar).pack(anchor="w", pady=(0, 10))
@@ -113,11 +115,15 @@ class EditarProductoDialog(ctk.CTkToplevel):
             self.presentaciones_temp.append(p)
         self._render()
 
-        # Guardar
-        ctk.CTkButton(body, text="💾  Guardar cambios", height=40,
+        # Guardar — siempre al fondo
+        self.btn_guardar = ctk.CTkButton(body, text="💾  Guardar cambios", height=40,
                       fg_color=ORANGE, hover_color="#ea6c0a",
                       font=ctk.CTkFont(weight="bold"),
-                      command=lambda: self._save(row["id"])).pack(fill="x")
+                      command=lambda: self._save(row["id"]))
+        self.btn_guardar.pack(fill="x")
+
+        # Aplicar estado inicial correcto (oculta mayoreo si es Servicio)
+        self._set_tipo(self.tipo_var.get())
 
     def _set_tipo(self, tipo):
         self.tipo_var.set(tipo)
@@ -127,12 +133,19 @@ class EditarProductoDialog(ctk.CTkToplevel):
             self.btn_servicio.configure(fg_color="transparent", text_color=NAVY,
                                         hover_color=GRAY_BG,
                                         border_width=1, border_color=BORDER)
+            # Mostrar sección de mayoreo antes del botón guardar
+            self.mayoreo_section.pack(fill="x", pady=(0, 6),
+                                      before=self.btn_guardar)
+            self.geometry("460x600")
         else:
             self.btn_servicio.configure(fg_color=ORANGE, text_color=WHITE,
                                         hover_color="#ea6c0a", border_width=0)
             self.btn_producto.configure(fg_color="transparent", text_color=NAVY,
                                         hover_color=GRAY_BG,
                                         border_width=1, border_color=BORDER)
+            # Ocultar sección de mayoreo
+            self.mayoreo_section.pack_forget()
+            self.geometry("460x380")
 
     def _agregar(self):
         nombre = self.pres_var.get()

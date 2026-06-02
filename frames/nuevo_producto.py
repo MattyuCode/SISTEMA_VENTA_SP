@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from tkinter import messagebox, ttk
 from database import get_categorias, crear_producto, guardar_mayoreos
+from frames.categorias import CategoriasModal
 from config import *
 
 PRESENTACIONES_DEFAULT = ["Resma", "Fardo", "Caja", "Bolsa", "Paquete", "Docena"]
@@ -37,9 +38,23 @@ class NuevoProductoFrame(ctk.CTkFrame):
         self.cat_var = ctk.StringVar(value=cats[0] if cats else "")
         ctk.CTkLabel(cat_col, text="Categoría", anchor="w", text_color=NAVY,
                      font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w")
-        ctk.CTkOptionMenu(cat_col, variable=self.cat_var, values=cats, fg_color=GRAY_BG2, button_color=NAVY,
-                          button_hover_color=ORANGE,
-                          text_color=TEXT_MAIN).pack(fill="x", pady=(3, 0))
+
+        # Fila dropdown + botón gestionar
+        cat_row = ctk.CTkFrame(cat_col, fg_color="transparent")
+        cat_row.pack(fill="x", pady=(3, 0))
+
+        self.cat_menu = ctk.CTkOptionMenu(
+            cat_row, variable=self.cat_var, values=cats if cats else ["Sin categorías"],
+            fg_color=GRAY_BG2, button_color=NAVY,
+            button_hover_color=ORANGE, text_color=TEXT_MAIN)
+        self.cat_menu.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        ctk.CTkButton(cat_row, text="🗂️",
+                      width=36, height=34,
+                      fg_color=NAVY, hover_color="#1a3d6e",
+                      text_color=WHITE,
+                      font=ctk.CTkFont(size=16),
+                      command=self._abrir_categorias).pack(side="left")
 
         # Columna Tipo
         tipo_col = ctk.CTkFrame(cat_tipo_row, fg_color="transparent")
@@ -145,6 +160,22 @@ class NuevoProductoFrame(ctk.CTkFrame):
                       fg_color=ORANGE, hover_color="#ea6c0a",
                       text_color=WHITE, font=ctk.CTkFont(size=14, weight="bold"),
                       command=self.guardar).pack(fill="x", pady=(16, 0))
+
+    def _abrir_categorias(self):
+        """Abre el modal de gestión de categorías y refresca el dropdown al cerrar."""
+        CategoriasModal(self, on_close=self._actualizar_cats)
+
+    def _actualizar_cats(self):
+        """Recarga las categorías en el dropdown después de cerrar el modal."""
+        cats = get_categorias()
+        if not cats:
+            cats = ["Sin categorías"]
+        self.cat_menu.configure(values=cats)
+        if self.cat_var.get() not in cats:
+            self.cat_var.set(cats[0])
+
+    def refresh(self):
+        self._actualizar_cats()
 
     def _set_tipo(self, tipo):
         self.tipo_var.set(tipo)
