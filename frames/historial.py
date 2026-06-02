@@ -98,6 +98,15 @@ class HistorialFrame(ctk.CTkFrame):
         self.det_tree.tag_configure("con_descuento", foreground="#dc2626")
         self.det_tree.pack(fill="both", expand=True, padx=1, pady=(0, 1))
 
+        # ── Botón Imprimir Factura ─────────────────────────────────────────
+        btn_bar = ctk.CTkFrame(det, fg_color="transparent")
+        btn_bar.pack(fill="x", padx=12, pady=(4, 8))
+        ctk.CTkButton(btn_bar,
+                      text="🖨️  Imprimir Factura",
+                      height=34, fg_color=ORANGE, hover_color="#ea6c0a",
+                      font=ctk.CTkFont(size=13, weight="bold"),
+                      command=self._imprimir_factura).pack(side="right")
+
     # ── Calendario popup ──────────────────────────────────────────────────────
     def _toggle_cal(self):
         if self._cal_popup and self._cal_popup.winfo_exists():
@@ -199,6 +208,100 @@ class HistorialFrame(ctk.CTkFrame):
             return
 
         return ruta
+
+    def _imprimir_factura(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showwarning("Sin selección",
+                                   "Selecciona una venta de la lista primero.")
+            return
+
+        venta_id = int(sel[0])
+        row = self.tree.item(venta_id, "values")
+        fecha_str = row[1]          # "2026-06-02 15:20:48"
+        total_str = row[2]          # "Q960.00"
+        total = float(total_str.replace("Q", "").replace(",", ""))
+
+        items = get_detalle_venta(venta_id)
+
+        # ── Diálogo datos cliente ─────────────────────────────────────────
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Datos del cliente para factura")
+        dlg.resizable(False, False)
+        dlg.attributes("-topmost", True)
+        dlg.grab_set()
+
+        dlg.update_idletasks()
+        w, h = 400, 310
+        sx = dlg.winfo_screenwidth()
+        sy = dlg.winfo_screenheight()
+        dlg.geometry(f"{w}x{h}+{(sx-w)//2}+{(sy-h)//2}")
+
+        ctk.CTkLabel(dlg, text="Datos del cliente",
+                     font=ctk.CTkFont(size=14, weight="bold"),
+                     text_color=NAVY).pack(pady=(14, 6))
+
+        campos = [
+            ("Nombre / Razón social", "nombre",    "FE Y ALEGRIA"),
+            ("NIT",                   "nit",        "C/F"),
+            ("Dirección",             "direccion",  ""),
+            ("Teléfono",              "telefono",   ""),
+            ("E-mail",                "email",      "N/D"),
+        ]
+        vars_ = {}
+        form = ctk.CTkFrame(dlg, fg_color="transparent")
+        form.pack(fill="x", padx=20)
+        for label, key, placeholder in campos:
+            row_f = ctk.CTkFrame(form, fg_color="transparent")
+            row_f.pack(fill="x", pady=2)
+            ctk.CTkLabel(row_f, text=label, width=160, anchor="w",
+                         text_color=NAVY,
+                         font=ctk.CTkFont(size=12)).pack(side="left")
+            var = ctk.StringVar()
+            vars_[key] = var
+            ctk.CTkEntry(row_f, textvariable=var,
+                         placeholder_text=placeholder,
+                         width=200).pack(side="left")
+
+        def _confirmar():
+            info = {k: v.get().strip() or ph
+                    for (_, k, ph), v in zip(campos, vars_.values())}
+            dlg.destroy()
+            self._generar_factura_pdf(venta_id, items, total, fecha_str, info)
+
+        ctk.CTkButton(dlg, text="Generar e Imprimir",
+                      fg_color=ORANGE, hover_color="#ea6c0a",
+                      font=ctk.CTkFont(size=13, weight="bold"),
+                      command=_confirmar).pack(pady=(10, 4))
+        ctk.CTkButton(dlg, text="Cancelar",
+                      fg_color="transparent", border_width=1,
+                      border_color=BORDER, text_color=NAVY,
+                      command=dlg.destroy).pack()
+
+    def _generar_factura_pdf(self, venta_id, items, total, fecha_str, cliente_info):
+        from frames.reporte import generar_factura
+        import subprocess, os
+
+        from config import recurso
+        logo_path = recurso("imagenes/SP Black.png")
+        if not os.path.exists(logo_path):
+            logo_path = None
+
+        try:
+            ruta = generar_factura(venta_id, items, total,
+                                   fecha_str, cliente_info, logo_path)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo generar la factura:\n{e}")
+            return
+
+        messagebox.showinfo("Factura generada",
+                            f"Factura guardada:\n{os.path.basename(ruta)}\n\n"
+                            "Se abrirá la carpeta para que la imprimas.")
+        # Abrir la carpeta con la factura seleccionada (no abre el PDF)
+        try:
+            subprocess.Popen(f'explorer /select,"{ruta}"')
+        except Exception:
+            os.startfile(os.path.dirname(ruta))
 
     def enviar_reporte(self):
         from frames.reporte import enviar_reporte_whatsapp

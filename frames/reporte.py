@@ -1,6 +1,7 @@
 import os
 import requests
 from datetime import datetime
+from num2words import num2words
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -8,6 +9,7 @@ from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
                                  Paragraph, Spacer, HRFlowable)
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+from reportlab.pdfgen import canvas as rl_canvas
 
 # ── Configuración WhatsApp API ────────────────────────────────────────────────
 WA_URL_BASE   = "http://localhost:5001"
@@ -416,3 +418,304 @@ def enviar_reporte_whatsapp(ruta_pdf, numero=WA_NUMERO):
         return False, "La API tardó demasiado en responder."
     except Exception as e:
         return False, f"Error inesperado: {e}"
+
+
+# ── Factura con 2 copias en una hoja ─────────────────────────────────────────
+def _total_en_letras(total: float) -> str:
+    entero = int(total)
+    centavos = round((total - entero) * 100)
+    texto = num2words(entero, lang="es").capitalize()
+    if centavos:
+        texto += f" con {centavos:02d}/100"
+    return texto + " quetzales exactos"
+
+
+def _dibujar_copia(c, x0, y0, ancho, alto, numero, fecha_str, items,
+                   total, cliente_info, logo_path):
+    """Dibuja UNA copia de la factura en el canvas en la posición (x0, y0)."""
+    NAVY_RGB   = (0.051, 0.169, 0.333)
+    ORANGE_RGB = (0.976, 0.451, 0.086)
+    WHITE      = (1, 1, 1)
+    GRAY_BG    = (0.941, 0.957, 0.973)
+
+    margen = 0.4 * cm
+
+    # ── Borde exterior ────────────────────────────────────────────────────────
+    c.setStrokeColorRGB(*NAVY_RGB)
+    c.setLineWidth(1)
+    c.rect(x0, y0, ancho, alto)
+
+    # ── Cabecera ──────────────────────────────────────────────────────────────
+    cab_h = 2.2 * cm
+    cab_y = y0 + alto - cab_h
+
+    # fondo azul cabecera (columna central)
+    col_logo_w  = 2.5 * cm
+    col_fecha_w = 3.2 * cm
+    col_tit_w   = ancho - col_logo_w - col_fecha_w
+
+    # columna logo
+    c.setFillColorRGB(*GRAY_BG)
+    c.rect(x0, cab_y, col_logo_w, cab_h, fill=1, stroke=0)
+
+    # columna título
+    c.setFillColorRGB(*NAVY_RGB)
+    c.rect(x0 + col_logo_w, cab_y, col_tit_w, cab_h, fill=1, stroke=0)
+
+    # columna fecha/número
+    c.setFillColorRGB(*GRAY_BG)
+    c.rect(x0 + col_logo_w + col_tit_w, cab_y, col_fecha_w, cab_h, fill=1, stroke=0)
+
+    # Logo (si existe)
+    if logo_path and os.path.exists(logo_path):
+        try:
+            c.drawImage(logo_path,
+                        x0 + 0.15 * cm, cab_y + 0.15 * cm,
+                        width=col_logo_w - 0.3 * cm,
+                        height=cab_h - 0.3 * cm,
+                        preserveAspectRatio=True, mask="auto")
+        except Exception:
+            pass
+
+    # Título empresa
+    c.setFillColorRGB(*WHITE)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawCentredString(x0 + col_logo_w + col_tit_w / 2,
+                        cab_y + cab_h * 0.62,
+                        "Soluciones Plus")
+    c.setFont("Helvetica", 8)
+    c.drawCentredString(x0 + col_logo_w + col_tit_w / 2,
+                        cab_y + cab_h * 0.38,
+                        "Cantón Yawa', San Mateo Ixtatán,")
+    c.drawCentredString(x0 + col_logo_w + col_tit_w / 2,
+                        cab_y + cab_h * 0.18,
+                        "Huehutenango")
+
+    # Fecha y número
+    fecha_dt = datetime.strptime(fecha_str[:10], "%Y-%m-%d")
+    fecha_fmt = fecha_dt.strftime("%d/%m/%Y")
+    fecha_x = x0 + col_logo_w + col_tit_w + margen
+    c.setFillColorRGB(*NAVY_RGB)
+    c.setFont("Helvetica-Bold", 7.5)
+    c.drawString(fecha_x, cab_y + cab_h * 0.68, "Fecha:")
+    c.drawString(fecha_x, cab_y + cab_h * 0.38, "Número:")
+    c.setFont("Helvetica", 7.5)
+    c.drawString(fecha_x + 1.3 * cm, cab_y + cab_h * 0.68, fecha_fmt)
+    c.setFillColorRGB(*NAVY_RGB)
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(fecha_x + 1.3 * cm, cab_y + cab_h * 0.38, f"SP {numero}")
+
+    # ── Datos cliente ─────────────────────────────────────────────────────────
+    cli_h = 1.6 * cm
+    cli_y = cab_y - cli_h
+    c.setFillColorRGB(*WHITE)
+    c.rect(x0, cli_y, ancho, cli_h, fill=1, stroke=0)
+    c.setStrokeColorRGB(*NAVY_RGB)
+    c.setLineWidth(0.3)
+    c.rect(x0, cli_y, ancho, cli_h)
+
+    lx  = x0 + margen
+    lx2 = x0 + ancho * 0.55
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColorRGB(*NAVY_RGB)
+
+    c.drawString(lx,  cli_y + cli_h * 0.76, "Cliente:")
+    c.drawString(lx,  cli_y + cli_h * 0.44, "Dirección :")
+    c.drawString(lx,  cli_y + cli_h * 0.13, "E-mail:")
+    c.drawString(lx2, cli_y + cli_h * 0.13, "Nit:")
+
+    c.setFont("Helvetica", 7.5)
+    c.setFillColorRGB(0, 0, 0)
+    c.drawString(lx  + 1.3 * cm, cli_y + cli_h * 0.76,
+                 cliente_info.get("nombre", ""))
+    c.drawString(lx  + 1.7 * cm, cli_y + cli_h * 0.44,
+                 cliente_info.get("direccion", ""))
+    c.drawString(lx  + 1.2 * cm, cli_y + cli_h * 0.13,
+                 cliente_info.get("email", "N/D"))
+
+    nit_val = cliente_info.get("nit", "C/F")
+    tel_val = cliente_info.get("telefono", "")
+    c.drawString(lx2 + 0.6 * cm, cli_y + cli_h * 0.13, nit_val)
+
+    if tel_val:
+        c.setFont("Helvetica-Bold", 7.5)
+        c.setFillColorRGB(*NAVY_RGB)
+        c.drawString(lx2 + 2 * cm, cli_y + cli_h * 0.13, "Teléfono:")
+        c.setFont("Helvetica", 7.5)
+        c.setFillColorRGB(0, 0, 0)
+        c.drawString(lx2 + 3.3 * cm, cli_y + cli_h * 0.13, tel_val)
+
+    # ── Cabecera tabla ────────────────────────────────────────────────────────
+    th = 0.55 * cm
+    ty = cli_y - th
+    cols = [1.2 * cm,
+            ancho - 1.2*cm - 2.4*cm - 1.6*cm - 2.0*cm,
+            2.4 * cm,
+            1.6 * cm,
+            2.0 * cm]
+    cx = [x0]
+    for w in cols:
+        cx.append(cx[-1] + w)
+
+    c.setFillColorRGB(*NAVY_RGB)
+    c.rect(x0, ty, ancho, th, fill=1, stroke=0)
+    c.setFillColorRGB(*WHITE)
+    c.setFont("Helvetica-Bold", 7)
+    headers = ["Cantidad", "Descripción", "P. Unitario", "Descuento", "Totales"]
+    aligns  = ["center", "center", "center", "center", "center"]
+    for i, (hdr, align) in enumerate(zip(headers, aligns)):
+        col_cx = cx[i]
+        col_w  = cols[i]
+        if align == "center":
+            c.drawCentredString(col_cx + col_w / 2, ty + th * 0.3, hdr)
+        else:
+            c.drawString(col_cx + 4, ty + th * 0.3, hdr)
+
+    # ── Filas de items ────────────────────────────────────────────────────────
+    fila_h  = 0.48 * cm
+    pie_h   = 0.65 * cm
+    # Calcular cuántas filas caben para que el pie quede pegado al fondo del recuadro
+    espacio_filas = (ty - y0 - pie_h)
+    max_fil = max(len(items), int(espacio_filas / fila_h))
+    fy      = ty
+
+    for i in range(max_fil):
+        fy -= fila_h
+        bg = WHITE if i % 2 == 0 else (0.973, 0.980, 0.988)
+        c.setFillColorRGB(*bg)
+        c.rect(x0, fy, ancho, fila_h, fill=1, stroke=0)
+        c.setStrokeColorRGB(0.886, 0.910, 0.941)
+        c.setLineWidth(0.3)
+        c.rect(x0, fy, ancho, fila_h)
+
+        c.setFillColorRGB(*NAVY_RGB)
+        c.setFont("Helvetica", 7)
+
+        if i < len(items):
+            it  = items[i]
+            qty = str(it.get("cantidad", ""))
+            desc_prod = str(it.get("prod", ""))
+            pu  = f"Q  {it.get('precio_unit', 0):.2f}"
+            dsc = it.get("descuento", 0) or 0
+            dsc_txt = f"Q  {dsc:.2f}" if dsc else "Q  -"
+            sub = max(0.0, it.get("subtotal", 0) - dsc)
+            tot = f"Q  {sub:.2f}"
+
+            c.setFillColorRGB(0, 0, 0)
+            c.drawCentredString(cx[0] + cols[0] / 2, fy + fila_h * 0.28, qty)
+            c.setFillColorRGB(*NAVY_RGB)
+            if desc_prod:
+                # Ajustar la descripción al ancho real de la columna
+                ancho_desc = cols[1] - 0.2 * cm
+                fs = 7
+                while fs >= 5 and c.stringWidth(desc_prod, "Helvetica", fs) > ancho_desc:
+                    fs -= 0.5
+                # Si aún no cabe con fuente mínima, recortar con "…"
+                texto = desc_prod
+                if c.stringWidth(texto, "Helvetica", fs) > ancho_desc:
+                    while texto and c.stringWidth(texto + "…", "Helvetica", fs) > ancho_desc:
+                        texto = texto[:-1]
+                    texto += "…"
+                c.setFont("Helvetica", fs)
+                c.drawString(cx[1] + 3, fy + fila_h * 0.28, texto)
+                c.setFont("Helvetica", 7)
+            for j, val in enumerate([pu, dsc_txt, tot], start=2):
+                c.drawCentredString(cx[j] + cols[j] / 2, fy + fila_h * 0.28, val)
+        # Las filas vacías quedan en blanco (sin "Q -")
+
+    # ── Pie: total en letras + total ─────────────────────────────────────────
+    pie_y = fy - pie_h
+    c.setFillColorRGB(*NAVY_RGB)
+    c.rect(x0, pie_y, ancho, pie_h, fill=1, stroke=0)
+
+    letras = _total_en_letras(total)
+    c.setFillColorRGB(*WHITE)
+    c.setFont("Helvetica-BoldOblique", 7)
+    c.drawString(x0 + margen, pie_y + pie_h * 0.35, letras)
+
+    # columna TOTAL (última columna, dentro del recuadro)
+    tot_col_w = cols[-1]
+    tot_col_x = cx[-2]
+    c.setFillColorRGB(*ORANGE_RGB)
+    c.rect(tot_col_x, pie_y, tot_col_w, pie_h, fill=1, stroke=0)
+
+    # Etiqueta "TOTAL" justo a la izquierda de la caja naranja
+    c.setFillColorRGB(*WHITE)
+    c.setFont("Helvetica-Bold", 8)
+    c.drawRightString(tot_col_x - 0.2 * cm, pie_y + pie_h * 0.32, "TOTAL")
+
+    # Monto centrado en la caja naranja
+    c.drawCentredString(tot_col_x + tot_col_w / 2,
+                        pie_y + pie_h * 0.32,
+                        f"Q {total:.2f}")
+
+
+def generar_factura(venta_id, items, total, fecha_str, cliente_info, logo_path=None):
+    """
+    Genera un PDF con 2 copias de la factura en una hoja carta.
+    Retorna la ruta del archivo generado.
+    """
+    carpeta = os.path.join(os.path.expanduser("~"), "Documents",
+                           "SISTEMA_SP", "Facturas")
+    os.makedirs(carpeta, exist_ok=True)
+
+    # Nombre del archivo con el nombre del cliente (limpio para Windows)
+    cliente_nombre = (cliente_info.get("nombre") or "Cliente").strip()
+    cliente_limpio = "".join(ch for ch in cliente_nombre
+                             if ch.isalnum() or ch in " _-").strip()
+    cliente_limpio = cliente_limpio.replace(" ", "_") or "Cliente"
+
+    hora = datetime.now().strftime("%H%M%S")
+    nombre = f"SP{venta_id}_{cliente_limpio}_{hora}.pdf"
+    ruta   = os.path.normpath(os.path.join(carpeta, nombre))
+
+    pw, ph = letter          # 21.59 cm × 27.94 cm
+    margen_hoja = 0.8 * cm
+
+    c = rl_canvas.Canvas(ruta, pagesize=letter)
+
+    # Cada copia ocupa la mitad de la hoja menos márgenes
+    alto_copia = (ph - 3 * margen_hoja) / 2
+    ancho_copia = pw - 2 * margen_hoja
+
+    # Copia superior (cliente)
+    _dibujar_copia(c,
+                   x0=margen_hoja,
+                   y0=margen_hoja + alto_copia + margen_hoja,
+                   ancho=ancho_copia,
+                   alto=alto_copia,
+                   numero=venta_id,
+                   fecha_str=fecha_str,
+                   items=items,
+                   total=total,
+                   cliente_info=cliente_info,
+                   logo_path=logo_path)
+
+    # Línea punteada de corte
+    linea_y = margen_hoja + alto_copia + margen_hoja / 2
+    c.setDash(4, 4)
+    c.setStrokeColorRGB(0.5, 0.5, 0.5)
+    c.setLineWidth(0.6)
+    c.line(margen_hoja, linea_y, pw - margen_hoja, linea_y)
+    c.setDash()
+
+    # Etiqueta de corte
+    c.setFont("Helvetica", 6)
+    c.setFillColorRGB(0.5, 0.5, 0.5)
+    c.drawCentredString(pw / 2, linea_y + 2, "✂  Cortar aquí  ✂")
+
+    # Copia inferior (negocio)
+    _dibujar_copia(c,
+                   x0=margen_hoja,
+                   y0=margen_hoja,
+                   ancho=ancho_copia,
+                   alto=alto_copia,
+                   numero=venta_id,
+                   fecha_str=fecha_str,
+                   items=items,
+                   total=total,
+                   cliente_info=cliente_info,
+                   logo_path=logo_path)
+
+    c.save()
+    return ruta
