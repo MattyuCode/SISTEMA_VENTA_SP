@@ -196,11 +196,14 @@ class VenderFrame(ctk.CTkFrame):
 
     def actualizar_lista(self):
         self.lista.delete(*self.lista.get_children())
+        self._info = {}  # cache id -> row
         for r in get_productos_en_stock(self.buscar_var.get().strip()):
+            self._info[r["id"]] = r
             tag       = "servicio" if r["tipo"] == "Servicio" else ""
             stock_txt = "∞" if r["tipo"] == "Servicio" else str(r["stock"])
+            precio_txt = "Variable" if r.get("precio_variable") else f"Q{r['precio']:.2f}"
             self.lista.insert("", "end", iid=r["id"], values=(
-                r["nombre"], f"Q{r['precio']:.2f}", stock_txt
+                r["nombre"], precio_txt, stock_txt
             ), tags=(tag,))
 
     # ── Presentaciones ────────────────────────────────────────────────────────
@@ -213,12 +216,17 @@ class VenderFrame(ctk.CTkFrame):
 
         pid = int(sel[0])
         vals = self.lista.item(pid, "values")
-        presentaciones = get_mayoreos(pid)
 
         for w in self.pres_botones_frame.winfo_children():
             w.destroy()
         self._pres_seleccionada = None
 
+        # Producto de precio variable: no muestra presentaciones
+        if self._info.get(pid, {}).get("precio_variable"):
+            self.pres_panel.pack_forget()
+            return
+
+        presentaciones = get_mayoreos(pid)
         if not presentaciones:
             self.pres_panel.pack_forget()
             return
@@ -308,13 +316,21 @@ class VenderFrame(ctk.CTkFrame):
         tipo       = "Servicio" if vals[2] == "∞" else "Producto"
         stock_disp = 999999 if tipo == "Servicio" else int(vals[2])
 
-        if self._pres_seleccionada:
+        # ── Precio variable: preguntar el monto ───────────────────────────
+        if self._info.get(pid, {}).get("precio_variable"):
+            precio = self._pedir_precio(vals[0])
+            if precio is None:
+                return  # canceló
+            nombre = vals[0]
+        elif self._pres_seleccionada:
             pres_nombre = self._pres_seleccionada["nombre"]
             precio      = self._pres_seleccionada["precio"]
             nombre      = vals[0] if pres_nombre == "Unidad" else f"{vals[0]} [{pres_nombre}]"
         else:
             nombre = vals[0]
             precio = float(vals[1].replace("Q", ""))
+
+        es_variable = bool(self._info.get(pid, {}).get("precio_variable"))
 
         en_c = sum(i["cantidad"] for i in self.carrito
                    if i["producto_id"] == pid and i["nombre"] == nombre)
@@ -323,18 +339,81 @@ class VenderFrame(ctk.CTkFrame):
                 f"Stock insuficiente. Disponible: {stock_disp - en_c}")
             return
 
-        for item in self.carrito:
-            if item["producto_id"] == pid and item["nombre"] == nombre:
-                item["cantidad"] += self.cantidad
-                self._reset_cantidad()
-                self._render_carrito()
-                return
+        # Los de precio variable NO se fusionan (cada uno con su propio precio)
+        if not es_variable:
+            for item in self.carrito:
+                if item["producto_id"] == pid and item["nombre"] == nombre:
+                    item["cantidad"] += self.cantidad
+                    self._reset_cantidad()
+                    self._render_carrito()
+                    return
 
         self.carrito.append({"producto_id": pid, "nombre": nombre,
                               "precio": precio, "cantidad": self.cantidad,
                               "tipo": tipo, "descuento": 0.0})
         self._reset_cantidad()
         self._render_carrito()
+
+    def _pedir_precio(self, nombre_prod):
+        """Diálogo modal que pide el precio para un servicio de precio variable.
+        Retorna el precio (float) o None si se cancela."""
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Precio del servicio")
+        dlg.geometry("340x210")
+        dlg.resizable(False, False)
+        dlg.configure(fg_color=GRAY_BG)
+        dlg.grab_set()
+        dlg.lift()
+        dlg.after(50, dlg.focus_force)
+
+        ctk.CTkFrame(dlg, height=5, corner_radius=0, fg_color=ORANGE).pack(fill="x")
+        inner = ctk.CTkFrame(dlg, fg_color=WHITE, corner_radius=0)
+        inner.pack(fill="both", expand=True, padx=18, pady=14)
+
+        ctk.CTkLabel(inner, text="💲 Precio variable",
+                     font=ctk.CTkFont(size=14, weight="bold"),
+                     text_color=NAVY).pack(anchor="w")
+        ctk.CTkLabel(inner, text=nombre_prod,
+                     font=ctk.CTkFont(size=12),
+                     text_color=TEXT_MUTED).pack(anchor="w", pady=(0, 8))
+        ctk.CTkLabel(inner, text="¿Cuánto vas a cobrar? (Q)",
+                     text_color=NAVY,
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
+
+        entry = ctk.CTkEntry(inner, placeholder_text="0.00", height=36)
+        entry.pack(fill="x", pady=(4, 10))
+        entry.focus_set()
+
+        resultado = {"precio": None}
+
+        def aceptar():
+            try:
+                p = float(entry.get())
+                if p <= 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Error", "Ingresa un precio válido mayor a 0.",
+                                     parent=dlg)
+                return
+            resultado["precio"] = p
+            dlg.destroy()
+
+        entry.bind("<Return>", lambda _: aceptar())
+
+        btns = ctk.CTkFrame(inner, fg_color="transparent")
+        btns.pack(fill="x")
+        ctk.CTkButton(btns, text="✔ Aceptar",
+                      fg_color=ORANGE, hover_color="#ea6c0a",
+                      width=120, height=34,
+                      command=aceptar).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btns, text="Cancelar",
+                      fg_color="transparent", hover_color=GRAY_BG2,
+                      text_color=TEXT_MUTED, border_width=1, border_color=BORDER,
+                      width=100, height=34,
+                      command=dlg.destroy).pack(side="left")
+
+        dlg.wait_window()
+        return resultado["precio"]
 
     def aplicar_descuento_a_seleccionado(self):
         sel = self.carrito_tree.selection()

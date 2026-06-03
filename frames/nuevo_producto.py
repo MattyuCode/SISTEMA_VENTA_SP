@@ -79,6 +79,16 @@ class NuevoProductoFrame(ctk.CTkFrame):
         # ── Nombre ────────────────────────────────────────────────────────
         self.nombre = fila("Nombre", placeholder_text="Ej: Papel Bond / Solvencia Fiscal")
 
+        # ── Precio variable (se pregunta al vender) ────────────────────────
+        self.precio_var_chk = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(form,
+                        text="💲 Precio variable (se pregunta el monto al vender)",
+                        variable=self.precio_var_chk,
+                        text_color=NAVY,
+                        fg_color=NAVY, hover_color="#1a3d6e",
+                        font=ctk.CTkFont(size=12, weight="bold"),
+                        command=self._toggle_precio_var).pack(anchor="w", pady=(10, 0))
+
         # ── Precio + Stock en una sola fila ──────────────────────────────
         self.precio_stock_row = ctk.CTkFrame(form, fg_color="transparent")
         self.precio_stock_row.pack(fill="x", pady=(10, 0))
@@ -161,6 +171,21 @@ class NuevoProductoFrame(ctk.CTkFrame):
                       text_color=WHITE, font=ctk.CTkFont(size=14, weight="bold"),
                       command=self.guardar).pack(fill="x", pady=(16, 0))
 
+    def _toggle_precio_var(self):
+        """Si el precio es variable, el campo precio y mayoreo no aplican."""
+        if self.precio_var_chk.get():
+            self.precio.delete(0, "end")
+            self.precio.configure(placeholder_text="Se define al vender",
+                                  state="disabled")
+            self.pres_section.pack_forget()
+            self.tip_lbl.pack_forget()
+        else:
+            self.precio.configure(state="normal",
+                                  placeholder_text="0.00")
+            if self.tipo_var.get() == "Producto":
+                self.pres_section.pack(fill="x", pady=(14, 0))
+                self.tip_lbl.pack(anchor="w", pady=(8, 0))
+
     def _abrir_categorias(self):
         """Abre el modal de gestión de categorías y refresca el dropdown al cerrar."""
         CategoriasModal(self, on_close=self._actualizar_cats)
@@ -223,20 +248,30 @@ class NuevoProductoFrame(ctk.CTkFrame):
     def guardar(self):
         nombre = self.nombre.get().strip()
         tipo   = self.tipo_var.get()
+        es_variable = 1 if self.precio_var_chk.get() else 0
         if not nombre:
             messagebox.showerror("Error", "El nombre es obligatorio."); return
-        try:
-            precio = float(self.precio.get())
-            stock  = int(self.stock.get()) if (tipo == "Producto" and self.stock.get().strip()) else 0
-        except ValueError:
-            messagebox.showerror("Error", "Precio y stock deben ser números."); return
 
-        pid = crear_producto(self.cat_var.get(), nombre, tipo, precio, stock)
-        if self.presentaciones_temp:
+        if es_variable:
+            precio = 0.0  # se define al vender
+        else:
+            try:
+                precio = float(self.precio.get())
+            except ValueError:
+                messagebox.showerror("Error", "El precio debe ser un número."); return
+        try:
+            stock = int(self.stock.get()) if (tipo == "Producto" and self.stock.get().strip()) else 0
+        except ValueError:
+            messagebox.showerror("Error", "El stock debe ser un número."); return
+
+        pid = crear_producto(self.cat_var.get(), nombre, tipo, precio, stock, es_variable)
+        if self.presentaciones_temp and not es_variable:
             guardar_mayoreos(pid, self.presentaciones_temp)
 
         messagebox.showinfo("Éxito", f"{'Servicio' if tipo == 'Servicio' else 'Producto'} "
                                       f"'{nombre}' guardado.")
+        self.precio_var_chk.set(False)
+        self.precio.configure(state="normal", placeholder_text="0.00")
         for e in (self.nombre, self.precio, self.stock):
             e.delete(0, "end")
         self.presentaciones_temp.clear()

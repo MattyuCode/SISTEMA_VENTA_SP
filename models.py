@@ -56,6 +56,7 @@ class Producto(Base):
     tipo         = Column(String(20),  default="Producto")  # Producto | Servicio
     precio       = Column(Float,       nullable=False)
     stock        = Column(Integer,     default=0)
+    precio_variable = Column(Integer,  default=0)  # 0 = precio fijo, 1 = se pregunta al vender
     categoria    = relationship("Categoria",    back_populates="productos")
     detalles     = relationship("DetalleVenta", back_populates="producto")
     mayoreos = relationship("ProductosMayoreo", back_populates="producto",

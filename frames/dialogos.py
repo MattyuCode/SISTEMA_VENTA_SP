@@ -66,6 +66,16 @@ class EditarProductoDialog(ctk.CTkToplevel):
         self.e_precio.insert(0, str(row["precio"]))
         self.e_precio.pack(fill="x", pady=(2, 8))
 
+        # Precio variable
+        self.precio_var_chk = ctk.BooleanVar(value=bool(row.get("precio_variable", 0)))
+        ctk.CTkCheckBox(body,
+                        text="💲 Precio variable (se pregunta al vender)",
+                        variable=self.precio_var_chk,
+                        text_color=NAVY,
+                        fg_color=NAVY, hover_color="#1a3d6e",
+                        font=ctk.CTkFont(size=12, weight="bold"),
+                        command=self._toggle_precio_var).pack(anchor="w", pady=(0, 8))
+
         # ── Precios de mayoreo (contenedor ocultable) ─────────────────────
         self.mayoreo_section = ctk.CTkFrame(body, fg_color="transparent")
 
@@ -124,6 +134,8 @@ class EditarProductoDialog(ctk.CTkToplevel):
 
         # Aplicar estado inicial correcto (oculta mayoreo si es Servicio)
         self._set_tipo(self.tipo_var.get())
+        if self.precio_var_chk.get():
+            self._toggle_precio_var()
 
     def _set_tipo(self, tipo):
         self.tipo_var.set(tipo)
@@ -146,6 +158,20 @@ class EditarProductoDialog(ctk.CTkToplevel):
             # Ocultar sección de mayoreo
             self.mayoreo_section.pack_forget()
             self.geometry("460x380")
+
+    def _toggle_precio_var(self):
+        if self.precio_var_chk.get():
+            self.e_precio.delete(0, "end")
+            self.e_precio.insert(0, "0")
+            self.e_precio.configure(state="disabled")
+            self.mayoreo_section.pack_forget()
+            self.geometry("460x420")
+        else:
+            self.e_precio.configure(state="normal")
+            if self.tipo_var.get() == "Producto":
+                self.mayoreo_section.pack(fill="x", pady=(0, 6),
+                                          before=self.btn_guardar)
+                self.geometry("460x640")
 
     def _agregar(self):
         nombre = self.pres_var.get()
@@ -176,13 +202,19 @@ class EditarProductoDialog(ctk.CTkToplevel):
         nombre = self.e_nombre.get().strip()
         if not nombre:
             messagebox.showerror("Error", "El nombre es obligatorio."); return
-        try:
-            precio = float(self.e_precio.get())
-        except ValueError:
-            messagebox.showerror("Error", "Precio inválido"); return
+        es_variable = 1 if self.precio_var_chk.get() else 0
+        if es_variable:
+            precio = 0.0
+        else:
+            try:
+                precio = float(self.e_precio.get())
+            except ValueError:
+                messagebox.showerror("Error", "Precio inválido"); return
 
-        editar_producto(pid, self.cat_var.get(), nombre, self.tipo_var.get(), precio)
-        guardar_mayoreos(pid, self.presentaciones_temp)
+        editar_producto(pid, self.cat_var.get(), nombre,
+                        self.tipo_var.get(), precio, es_variable)
+        # Si es precio variable, no guardar mayoreos
+        guardar_mayoreos(pid, [] if es_variable else self.presentaciones_temp)
         self.callback()
         self.destroy()
 

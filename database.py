@@ -112,7 +112,8 @@ def get_productos(buscar="", categoria=None):
             q = q.filter(Categoria.nombre == categoria)
         rows = q.order_by(Categoria.nombre, Producto.nombre).all()
         return [{"id": p.id, "cat": c.nombre, "nombre": p.nombre,
-                 "precio": p.precio, "stock": p.stock, "tipo": p.tipo}
+                 "precio": p.precio, "stock": p.stock, "tipo": p.tipo,
+                 "precio_variable": p.precio_variable or 0}
                 for p, c in rows]
 
 
@@ -126,7 +127,8 @@ def get_productos_en_stock(buscar=""):
         if buscar:
             q = q.filter(Producto.nombre.ilike(f"%{buscar}%"))
         return [{"id": p.id, "nombre": p.nombre, "precio": p.precio,
-                 "stock": p.stock, "tipo": p.tipo}
+                 "stock": p.stock, "tipo": p.tipo,
+                 "precio_variable": p.precio_variable or 0}
                 for p in q.order_by(Producto.nombre).all()]
 
 def get_producto(pid):
@@ -139,20 +141,22 @@ def get_producto(pid):
             raise ValueError(f"La categoría del producto ID {pid} fue eliminada.")
         return {"id": p.id, "nombre": p.nombre, "precio": p.precio,
                 "stock": p.stock, "tipo": p.tipo,
-                "categoria_id": p.categoria_id, "cat": c.nombre}
+                "categoria_id": p.categoria_id, "cat": c.nombre,
+                "precio_variable": p.precio_variable or 0}
 
-def crear_producto(cat_nombre, nombre, tipo, precio, stock):
+def crear_producto(cat_nombre, nombre, tipo, precio, stock, precio_variable=0):
     with get_session() as s:
         cat = s.query(Categoria).filter_by(nombre=cat_nombre).first()
         if cat is None:
             raise ValueError(f"Categoría '{cat_nombre}' no existe.")
         p = Producto(categoria_id=cat.id, nombre=nombre,
-                     tipo=tipo, precio=precio, stock=stock)
+                     tipo=tipo, precio=precio, stock=stock,
+                     precio_variable=precio_variable)
         s.add(p)
         s.commit()
         return p.id
 
-def editar_producto(pid, cat_nombre, nombre, tipo, precio):
+def editar_producto(pid, cat_nombre, nombre, tipo, precio, precio_variable=0):
     with get_session() as s:
         cat = s.query(Categoria).filter_by(nombre=cat_nombre).first()
         if cat is None:
@@ -164,6 +168,7 @@ def editar_producto(pid, cat_nombre, nombre, tipo, precio):
         p.nombre       = nombre
         p.tipo         = tipo
         p.precio       = precio
+        p.precio_variable = precio_variable
         s.commit()
 
 def eliminar_producto(pid):
