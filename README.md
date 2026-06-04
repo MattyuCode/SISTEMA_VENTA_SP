@@ -14,9 +14,14 @@ pip install -U pyinstaller
 * https://nodejs.org/en/download
 
 
-# build 
+# build 1
 ```bash 
 pyinstaller --onefile --noconsole --icon=imagenes/icono.ico --name SISTEMA_SP --add-data "imagenes;imagenes" main.py
+``` 
+
+# build 2
+```bash 
+pyinstaller SISTEMA_SP.spec
 ``` 
 
 - Para sacar el nombre de la computadora en el terminal
