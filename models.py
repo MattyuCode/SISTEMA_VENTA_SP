@@ -68,6 +68,7 @@ class Venta(Base):
     fecha    = Column(String(30), nullable=False)
     total    = Column(Float,      nullable=False)
     descuento = Column(Float, default=0.0)
+    estado   = Column(String(20), default="activa")  # activa | anulada
     detalles = relationship("DetalleVenta", back_populates="venta")
 
 class DetalleVenta(Base):

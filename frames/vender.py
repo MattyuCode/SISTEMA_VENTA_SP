@@ -65,7 +65,7 @@ class VenderFrame(ctk.CTkFrame):
 
         cols = ("Producto", "Precio", "Stock")
         self.lista = ttk.Treeview(lista_frame, columns=cols, show="headings", height=13)
-        for col, w, anchor in zip(cols, [220, 90, 80], ["w", "center", "center"]):
+        for col, w, anchor in zip(cols, [250, 60, 50], ["w", "center", "center"]):
             self.lista.heading(col, text=col)
             self.lista.column(col, width=w, anchor=anchor)
         self.lista.tag_configure("servicio", foreground="#7c3aed")
@@ -133,7 +133,7 @@ class VenderFrame(ctk.CTkFrame):
 
         cols = ("Producto", "Cant", "Precio", "Descuento", "Subtotal")
         self.carrito_tree = ttk.Treeview(inner, columns=cols, show="headings", height=13)
-        for col, w, anchor in zip(cols, [180, 50, 80, 80, 90], ["w", "center", "center", "center", "center"]):
+        for col, w, anchor in zip(cols, [225, 25, 40, 40, 40], ["w", "center", "center", "center", "center"]):
             self.carrito_tree.heading(col, text=col)
             self.carrito_tree.column(col, width=w, anchor=anchor)
         self.carrito_tree.tag_configure("con_descuento", foreground="#dc2626")

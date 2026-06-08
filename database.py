@@ -211,8 +211,25 @@ def get_ventas():
             resumen = ", ".join(f"{p.nombre} x{d.cantidad}" for d, p in detalles)
             result.append({"id": v.id, "fecha": v.fecha,
                             "total": v.total, "descuento": v.descuento,
+                            "estado": v.estado or "activa",
                             "resumen": resumen})
         return result
+
+def anular_venta(venta_id):
+    """Marca la venta como anulada y devuelve el stock de los productos."""
+    with get_session() as s:
+        v = s.get(Venta, venta_id)
+        if v is None:
+            raise ValueError("Venta no encontrada.")
+        if (v.estado or "activa") == "anulada":
+            raise ValueError("Esta venta ya está anulada.")
+        detalles = s.query(DetalleVenta).filter_by(venta_id=venta_id).all()
+        for d in detalles:
+            prod = s.get(Producto, d.producto_id)
+            if prod is not None and prod.tipo == "Producto":
+                prod.stock += d.cantidad   # devolver al inventario
+        v.estado = "anulada"
+        s.commit()
 
 def get_detalle_venta(venta_id):
     with get_session() as s:
@@ -230,7 +247,8 @@ def get_detalle_venta(venta_id):
 def get_ventas_hoy(fecha_prefix):
     with get_session() as s:
         ventas = (s.query(Venta)
-                   .filter(Venta.fecha.like(f"{fecha_prefix}%"))
+                   .filter(Venta.fecha.like(f"{fecha_prefix}%"),
+                           Venta.estado != "anulada")
                    .order_by(Venta.id.asc()).all())
         result = []
         for v in ventas:
@@ -251,6 +269,29 @@ def get_ventas_hoy(fecha_prefix):
         return result
 
 
+def get_ventas_anuladas_hoy(fecha_prefix):
+    """Ventas ANULADAS del día — solo para referencia, no suman al total."""
+    with get_session() as s:
+        ventas = (s.query(Venta)
+                   .filter(Venta.fecha.like(f"{fecha_prefix}%"),
+                           Venta.estado == "anulada")
+                   .order_by(Venta.id.asc()).all())
+        result = []
+        for v in ventas:
+            detalles = (s.query(DetalleVenta, Producto)
+                         .join(Producto)
+                         .filter(DetalleVenta.venta_id == v.id).all())
+            items = [{
+                "producto": d.nombre_venta or p.nombre,
+                "cantidad": d.cantidad,
+                "precio":   d.precio_unit,
+                "subtotal": d.subtotal,
+                "descuento": d.descuento or 0.0,
+            } for d, p in detalles]
+            result.append({"id": v.id, "fecha": v.fecha, "total": v.total,
+                            "items": items})
+        return result
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 def get_stats(hoy_prefix, mes_prefix):
     with get_session() as s:
@@ -258,9 +299,11 @@ def get_stats(hoy_prefix, mes_prefix):
         sin_stock  = s.query(func.count(Producto.id)).filter(
             Producto.stock == 0, Producto.tipo == "Producto").scalar()
         ventas_hoy = (s.query(func.coalesce(func.sum(Venta.total), 0))
-                       .filter(Venta.fecha.like(f"{hoy_prefix}%")).scalar())
+                       .filter(Venta.fecha.like(f"{hoy_prefix}%"),
+                               Venta.estado != "anulada").scalar())
         ventas_mes = (s.query(func.coalesce(func.sum(Venta.total), 0))
-                       .filter(Venta.fecha.like(f"{mes_prefix}%")).scalar())
+                       .filter(Venta.fecha.like(f"{mes_prefix}%"),
+                               Venta.estado != "anulada").scalar())
         return total_prod, sin_stock, float(ventas_hoy), float(ventas_mes)
 
 def get_stock_bajo(limite=5):

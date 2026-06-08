@@ -1,7 +1,7 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
 from datetime import datetime, date, timedelta
-from database import get_ventas, get_detalle_venta, get_observaciones_hoy
+from database import get_ventas, get_detalle_venta, get_observaciones_hoy, anular_venta
 from config import *
 from frames.ctk_calendar import CTkCalendar
 
@@ -74,6 +74,7 @@ class HistorialFrame(ctk.CTkFrame):
                 ["center", "center", "center", "center", "w"]):
             self.tree.heading(col, text=col)
             self.tree.column(col, width=w, anchor=anchor)
+        self.tree.tag_configure("anulada", foreground="#9ca3af")
         self.tree.pack(fill="x", padx=1, pady=1)
         self.tree.bind("<<TreeviewSelect>>", self.mostrar_detalle)
 
@@ -106,6 +107,11 @@ class HistorialFrame(ctk.CTkFrame):
                       height=34, fg_color=ORANGE, hover_color="#ea6c0a",
                       font=ctk.CTkFont(size=13, weight="bold"),
                       command=self._imprimir_factura).pack(side="right")
+        ctk.CTkButton(btn_bar,
+                      text="🚫  Anular venta",
+                      height=34, fg_color="#dc2626", hover_color="#b91c1c",
+                      font=ctk.CTkFont(size=13, weight="bold"),
+                      command=self._anular_venta).pack(side="right", padx=(0, 8))
 
     # ── Calendario popup ──────────────────────────────────────────────────────
     def _toggle_cal(self):
@@ -159,9 +165,12 @@ class HistorialFrame(ctk.CTkFrame):
         self.tree.delete(*self.tree.get_children())
         for v in get_ventas():
             desc_txt = f"-Q{v['descuento']:.2f}" if v.get("descuento", 0) > 0 else "—"
+            anulada  = v.get("estado") == "anulada"
+            resumen  = ("🚫 ANULADA — " + v["resumen"]) if anulada else v["resumen"]
             self.tree.insert("", "end", iid=v["id"], values=(
                 v["id"], v["fecha"], f"Q{v['total']:.2f}",
-                desc_txt, v["resumen"]))
+                desc_txt, resumen),
+                tags=("anulada",) if anulada else ())
 
     def mostrar_detalle(self, event):
         sel = self.tree.selection()
@@ -181,7 +190,7 @@ class HistorialFrame(ctk.CTkFrame):
 
     def generar(self, solo_pdf=False):
         from frames.reporte import generar_pdf
-        from database import get_ventas_hoy, get_fiados_hoy
+        from database import get_ventas_hoy, get_fiados_hoy, get_ventas_anuladas_hoy
 
         fecha = self._get_fecha_seleccionada()
         if fecha is None: return
@@ -189,14 +198,15 @@ class HistorialFrame(ctk.CTkFrame):
         ventas        = get_ventas_hoy(fecha)
         observaciones = get_observaciones_hoy(fecha)
         fiados        = get_fiados_hoy(fecha)
+        anuladas      = get_ventas_anuladas_hoy(fecha)
 
-        if not ventas and not observaciones and not fiados:
+        if not ventas and not observaciones and not fiados and not anuladas:
             messagebox.showinfo("Sin datos",
                 f"No hay ventas, observaciones ni fiados registrados el {fecha}.")
             return
 
         try:
-            ruta = generar_pdf(ventas, observaciones, fiados, fecha)
+            ruta = generar_pdf(ventas, observaciones, fiados, fecha, anuladas=anuladas)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo generar el PDF:\n{e}")
             return
@@ -208,6 +218,46 @@ class HistorialFrame(ctk.CTkFrame):
             return
 
         return ruta
+
+    def _anular_venta(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showwarning("Sin selección",
+                                   "Selecciona la venta que quieres anular.")
+            return
+        venta_id = int(sel[0])
+        row = self.tree.item(venta_id, "values")
+
+        # Ya anulada
+        if "ANULADA" in str(row[4]):
+            messagebox.showinfo("Ya anulada", "Esta venta ya está anulada.")
+            return
+
+        if not messagebox.askyesno(
+            "Confirmar anulación",
+            f"¿Anular la venta #{venta_id} por {row[2]}?\n\n"
+            "• La venta quedará marcada como ANULADA (no se borra)\n"
+            "• El stock de los productos se devolverá al inventario\n"
+            "• No se contará en los totales ni reportes\n\n"
+            "Esta acción no se puede deshacer."):
+            return
+
+        try:
+            anular_venta(venta_id)
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+            return
+
+        messagebox.showinfo("Venta anulada",
+                            f"✅ Venta #{venta_id} anulada.\n"
+                            "El stock fue devuelto al inventario.")
+        self.refresh()
+        self.det_tree.delete(*self.det_tree.get_children())
+        # Refrescar inventario e inicio si existen
+        for key in ("inventario", "inicio"):
+            fr = getattr(self.app, "frames", {}).get(key)
+            if fr and hasattr(fr, "refresh"):
+                fr.refresh()
 
     def _imprimir_factura(self):
         sel = self.tree.selection()

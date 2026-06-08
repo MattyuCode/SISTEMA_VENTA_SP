@@ -35,7 +35,7 @@ NAVY   = colors.HexColor("#0d2b55")
 ORANGE = colors.HexColor("#F97316")
 
 # ── Generar PDF ───────────────────────────────────────────────────────────────
-def generar_pdf(ventas, observaciones, fiados, fecha):
+def generar_pdf(ventas, observaciones, fiados, fecha, anuladas=None):
 
     carpeta_base = os.path.join(os.path.expanduser("~"), "Documents", "SISTEMA_SP", "Reportes")
     os.makedirs(carpeta_base, exist_ok=True)
@@ -82,6 +82,12 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
         data = [["#", "Hora", "Producto", "Cantidad", "Precio", "Descuento", "Subtotal", "Total"]]
         estilos_fila = []
 
+        # Estilos para el nombre del producto (se ajustan en varias líneas)
+        prodv_style_bold = ParagraphStyle("prodv_b", fontSize=8, leading=9.5,
+                                           fontName="Helvetica-Bold", textColor=NAVY)
+        prodv_style = ParagraphStyle("prodv", fontSize=8, leading=9.5,
+                                      fontName="Helvetica", textColor=colors.HexColor("#374151"))
+
         fila_idx = 1
         for i, v in enumerate(ventas, 1):
             hora = v["fecha"][11:16]
@@ -95,7 +101,7 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
                 desc_txt = f"-Q{desc_item:.2f}" if desc_item > 0 else "—"
                 sub_final = max(0.0, it["subtotal"] - desc_item)
                 data.append([str(i), hora,
-                             it["producto"],
+                             Paragraph(it["producto"], prodv_style_bold),
                              str(it["cantidad"]),
                              f"Q{it['precio']:.2f}",
                              desc_txt,
@@ -110,7 +116,7 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
                     desc_txt = f"-Q{desc_item:.2f}" if desc_item > 0 else "—"
                     sub_final = max(0.0, it["subtotal"] - desc_item)
                     data.append(["", "",
-                                 it["producto"],
+                                 Paragraph(it["producto"], prodv_style),
                                  str(it["cantidad"]),
                                  f"Q{it['precio']:.2f}",
                                  desc_txt,
@@ -208,6 +214,72 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
 
     elements.append(Spacer(1, 0.5*cm))
 
+    # ── Ventas anuladas (solo referencia, NO afecta el total) ──────────────────
+    if anuladas:
+        elements.append(HRFlowable(width="100%", thickness=0.5,
+                                    color=colors.HexColor("#e2e8f0"), spaceAfter=8))
+        elements.append(Paragraph("Ventas anuladas (solo referencia)", bold))
+        elements.append(Paragraph(
+            "Estas ventas fueron anuladas y NO se cuentan en el total del día.",
+            ParagraphStyle("nota_anul", fontSize=8,
+                            textColor=colors.HexColor("#9ca3af"))))
+        elements.append(Spacer(1, 0.15*cm))
+
+        prod_anul_style = ParagraphStyle("prod_anul", fontSize=8, leading=9.5,
+                                          fontName="Helvetica",
+                                          textColor=colors.HexColor("#6b7280"))
+
+        data_an = [["#", "Hora", "Producto", "Cant", "Precio", "Descuento", "Subtotal", "Total"]]
+        for i, v in enumerate(anuladas, 1):
+            hora = v["fecha"][11:16]
+            items = v.get("items", [])
+            if items:
+                it0 = items[0]
+                d0 = it0.get("descuento", 0.0) or 0.0
+                data_an.append([str(i), hora,
+                                Paragraph(it0["producto"], prod_anul_style),
+                                str(it0["cantidad"]),
+                                f"Q{it0['precio']:.2f}",
+                                f"-Q{d0:.2f}" if d0 > 0 else "—",
+                                f"Q{max(0.0, it0['subtotal'] - d0):.2f}",
+                                f"Q{v['total']:.2f}"])
+                for it in items[1:]:
+                    d = it.get("descuento", 0.0) or 0.0
+                    data_an.append(["", "",
+                                    Paragraph(it["producto"], prod_anul_style),
+                                    str(it["cantidad"]),
+                                    f"Q{it['precio']:.2f}",
+                                    f"-Q{d:.2f}" if d > 0 else "—",
+                                    f"Q{max(0.0, it['subtotal'] - d):.2f}",
+                                    ""])
+            else:
+                data_an.append([str(i), hora,
+                                Paragraph("(sin detalle)", prod_anul_style),
+                                "", "", "", "", f"Q{v['total']:.2f}"])
+
+        tabla_an = Table(data_an,
+            colWidths=[0.6*cm, 1.2*cm, 5.0*cm, 1.0*cm, 1.6*cm, 1.8*cm, 1.8*cm, 1.8*cm],
+            repeatRows=1)
+        tabla_an.setStyle(TableStyle([
+            ("BACKGROUND",   (0,0), (-1,0), colors.HexColor("#9ca3af")),
+            ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+            ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE",     (0,0), (-1,0), 8),
+            ("ALIGN",        (0,0), (-1,0), "CENTER"),
+            ("ALIGN",        (2,0), (2,0), "LEFT"),
+            ("FONTSIZE",     (0,1), (-1,-1), 8),
+            ("TEXTCOLOR",    (0,1), (-1,-1), colors.HexColor("#6b7280")),
+            ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
+            ("ALIGN",        (0,1), (1,-1), "CENTER"),
+            ("ALIGN",        (3,1), (7,-1), "CENTER"),
+            ("GRID",         (0,0), (-1,-1), 0.3, colors.HexColor("#e5e7eb")),
+            ("ROWBACKGROUNDS",(0,1), (-1,-1), [colors.white, colors.HexColor("#f9fafb")]),
+            ("TOPPADDING",   (0,1), (-1,-1), 4),
+            ("BOTTOMPADDING",(0,1), (-1,-1), 4),
+        ]))
+        elements.append(tabla_an)
+        elements.append(Spacer(1, 0.5*cm))
+
     # ── Observaciones ─────────────────────────────────────────────────────────
     elements.append(HRFlowable(width="100%", thickness=0.5,
                                 color=colors.HexColor("#e2e8f0"), spaceAfter=8))
@@ -256,22 +328,45 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
         cabeceras_fi = []
         fila_idx = 1
 
+        # Estilos que se ajustan en varias líneas si el texto es largo
+        cliente_style = ParagraphStyle("cliente_fi", fontSize=8, leading=9.5,
+                                        fontName="Helvetica-Bold", textColor=NAVY)
+        prod_style_bold = ParagraphStyle("prod_fi_b", fontSize=8, leading=9.5,
+                                          fontName="Helvetica-Bold", textColor=NAVY)
+        prod_style = ParagraphStyle("prod_fi", fontSize=8, leading=9.5,
+                                     fontName="Helvetica", textColor=colors.HexColor("#374151"))
+
         for f in fiados:
             hora   = f["fecha"][11:16]
             estado = "Pagado" if f["estado"] == "pagado" else "Pendiente"
             items  = f.get("items", [])
 
-            data_fi.append([hora, f["cliente"], "", "", "", "", estado, f"Q{f['total']:.2f}"])
-            cabeceras_fi.append((fila_idx, f["estado"]))
-            fila_idx += 1
+            cliente_p = Paragraph(f["cliente"], cliente_style)
 
-            for it in items:
-                data_fi.append(["", "",
-                                it["producto"],
-                                str(it["cantidad"]),
-                                f"Q{it['precio']:.2f}",
-                                f"Q{it['subtotal']:.2f}",
-                                "", ""])
+            if items:
+                # Primer producto en la MISMA fila que el cliente
+                it0 = items[0]
+                data_fi.append([hora, cliente_p,
+                                Paragraph(it0["producto"], prod_style_bold),
+                                str(it0["cantidad"]),
+                                f"Q{it0['precio']:.2f}",
+                                f"Q{it0['subtotal']:.2f}",
+                                estado, f"Q{f['total']:.2f}"])
+                cabeceras_fi.append((fila_idx, f["estado"]))
+                fila_idx += 1
+
+                # Productos restantes en filas siguientes
+                for it in items[1:]:
+                    data_fi.append(["", "",
+                                    Paragraph(it["producto"], prod_style),
+                                    str(it["cantidad"]),
+                                    f"Q{it['precio']:.2f}",
+                                    f"Q{it['subtotal']:.2f}",
+                                    "", ""])
+                    fila_idx += 1
+            else:
+                data_fi.append([hora, cliente_p, "", "", "", "", estado, f"Q{f['total']:.2f}"])
+                cabeceras_fi.append((fila_idx, f["estado"]))
                 fila_idx += 1
 
             total_fiados += f["total"]
@@ -279,7 +374,7 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
         data_fi.append(["", "", "", "", "", "", "TOTAL FIADOS", f"Q{total_fiados:.2f}"])
 
         tabla_fi = Table(data_fi,
-            colWidths=[1.2*cm, 3*cm, 5*cm, 1.3*cm, 1.5*cm, 1.6*cm, 1.5*cm, 1.9*cm],
+            colWidths=[1.1*cm, 3.6*cm, 3.3*cm, 0.9*cm, 1.7*cm, 1.8*cm, 2.0*cm, 1.8*cm],
             repeatRows=1)
 
         estilo_fi = [
@@ -291,7 +386,8 @@ def generar_pdf(ventas, observaciones, fiados, fecha):
             ("ALIGN",         (2,0), (2,0), "LEFT"),
             ("FONTSIZE",      (0,1), (-1,-2), 8),
             ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
-            ("ALIGN",         (0,1), (1,-2), "CENTER"),
+            ("ALIGN",         (0,1), (0,-2), "CENTER"),
+            ("ALIGN",         (1,1), (1,-2), "LEFT"),
             ("ALIGN",         (3,1), (7,-2), "CENTER"),
             ("ALIGN",         (5,1), (5,-2), "RIGHT"),
             ("ALIGN",         (7,1), (7,-2), "RIGHT"),
