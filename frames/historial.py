@@ -1,7 +1,7 @@
 import customtkinter as ctk
 from tkinter import ttk, messagebox
 from datetime import datetime, date, timedelta
-from database import get_ventas, get_detalle_venta, get_observaciones_hoy, anular_venta
+from database import get_ventas, get_ventas_hoy, get_ventas_anuladas_hoy, get_detalle_venta, get_observaciones_hoy, anular_venta
 from config import *
 from frames.ctk_calendar import CTkCalendar
 
@@ -141,6 +141,7 @@ class HistorialFrame(ctk.CTkFrame):
                 text=f"📅  {self._fecha_sel.strftime('%d/%m/%Y')}")
             self._cal_popup.destroy()
             self._cal_popup = None
+            self.refresh()
         cal._select = _select_wrap
 
     # ── Helpers de fecha ──────────────────────────────────────────────────────
@@ -148,11 +149,13 @@ class HistorialFrame(ctk.CTkFrame):
         self._fecha_sel = date.today()
         self.fecha_btn.configure(
             text=f"📅  {self._fecha_sel.strftime('%d/%m/%Y')}")
+        self.refresh()
 
     def _set_ayer(self):
         self._fecha_sel = date.today() - timedelta(days=1)
         self.fecha_btn.configure(
             text=f"📅  {self._fecha_sel.strftime('%d/%m/%Y')}")
+        self.refresh()
 
     def _get_fecha_seleccionada(self):
         if self._fecha_sel > date.today():
@@ -162,15 +165,25 @@ class HistorialFrame(ctk.CTkFrame):
 
     # ── Refresh y detalle ─────────────────────────────────────────────────────
     def refresh(self):
+        fecha = self._fecha_sel.strftime("%Y-%m-%d")
         self.tree.delete(*self.tree.get_children())
-        for v in get_ventas():
-            desc_txt = f"-Q{v['descuento']:.2f}" if v.get("descuento", 0) > 0 else "—"
-            anulada  = v.get("estado") == "anulada"
-            resumen  = ("🚫 ANULADA — " + v["resumen"]) if anulada else v["resumen"]
-            self.tree.insert("", "end", iid=v["id"], values=(
-                v["id"], v["fecha"], f"Q{v['total']:.2f}",
-                desc_txt, resumen),
-                tags=("anulada",) if anulada else ())
+
+        normales = [
+            (v["id"], v["fecha"], f"Q{v['total']:.2f}",
+             f"-Q{v['descuento']:.2f}" if v.get("descuento", 0) > 0 else "—",
+             v["resumen"], False)
+            for v in get_ventas_hoy(fecha)
+        ]
+        anuladas = [
+            (v["id"], v["fecha"], f"Q{v['total']:.2f}", "—",
+             "🚫 ANULADA — " + ", ".join(f"{it['producto']} x{it['cantidad']}" for it in v.get("items", [])),
+             True)
+            for v in get_ventas_anuladas_hoy(fecha)
+        ]
+
+        for vid, fecha_v, total, desc, resumen, anulada in sorted(normales + anuladas, key=lambda x: x[0], reverse=True):
+            self.tree.insert("", "end", iid=vid, values=(vid, fecha_v, total, desc, resumen),
+                             tags=("anulada",) if anulada else ())
 
     def mostrar_detalle(self, event):
         sel = self.tree.selection()

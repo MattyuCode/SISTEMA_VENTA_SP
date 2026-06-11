@@ -1,3 +1,4 @@
+
 [Setup]
 AppName=SISTEMA SP
 AppVersion=1.0
