@@ -13,7 +13,7 @@ class EditarProductoDialog(ctk.CTkToplevel):
     def __init__(self, parent, row, callback):
         super().__init__(parent)
         self.title("Editar producto")
-        self.geometry("460x600")
+        self.geometry("460x630")
         self.grab_set()
         self.configure(fg_color=GRAY_BG)
         self.callback = callback
@@ -148,7 +148,7 @@ class EditarProductoDialog(ctk.CTkToplevel):
             # Mostrar sección de mayoreo antes del botón guardar
             self.mayoreo_section.pack(fill="x", pady=(0, 6),
                                       before=self.btn_guardar)
-            self.geometry("460x600")
+            self.geometry("460x630")
         else:
             self.btn_servicio.configure(fg_color=ORANGE, text_color=WHITE,
                                         hover_color="#ea6c0a", border_width=0)
@@ -157,7 +157,7 @@ class EditarProductoDialog(ctk.CTkToplevel):
                                         border_width=1, border_color=BORDER)
             # Ocultar sección de mayoreo
             self.mayoreo_section.pack_forget()
-            self.geometry("460x380")
+            self.geometry("460x420")
 
     def _toggle_precio_var(self):
         if self.precio_var_chk.get():

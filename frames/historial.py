@@ -1,4 +1,5 @@
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime, date, timedelta
 from database import get_ventas, get_ventas_hoy, get_ventas_anuladas_hoy, get_detalle_venta, get_observaciones_hoy, anular_venta
@@ -20,6 +21,22 @@ class HistorialFrame(ctk.CTkFrame):
         ctk.CTkLabel(top_bar, text="Ventas registradas",
                      font=ctk.CTkFont(size=14, weight="bold"),
                      text_color=NAVY).pack(side="left")
+
+        # ── Buscador por nombre de producto ───────────────────────────────
+        self.buscar_var = ctk.StringVar()
+        buscar_box = ctk.CTkFrame(top_bar, fg_color="transparent")
+        buscar_box.pack(side="left", padx=(12, 0))
+        self.buscar_entry = ctk.CTkEntry(
+            buscar_box, textvariable=self.buscar_var,
+            placeholder_text="🔍  Buscar producto vendido...",
+            width=260, height=30)
+        self.buscar_entry.pack(side="left")
+        ctk.CTkButton(buscar_box, text="✕", width=30, height=30,
+                      fg_color="transparent", hover_color=GRAY_BG,
+                      text_color=NAVY,
+                      font=ctk.CTkFont(size=14, weight="bold"),
+                      command=lambda: self.buscar_var.set("")).pack(side="left", padx=(4, 0))
+        self.buscar_var.trace_add("write", lambda *_: self.refresh())
 
         ctk.CTkButton(top_bar,
                       text="📲  Enviar reporte del día por WhatsApp",
@@ -59,11 +76,17 @@ class HistorialFrame(ctk.CTkFrame):
                      text_color=NAVY,
                      font=ctk.CTkFont(size=13, weight="bold")).pack(side="right", padx=(0, 6))
 
+        # ── Panel divisible (arrastrable vertical) ────────────────────────
+        self.pw = tk.PanedWindow(self, orient=tk.VERTICAL,
+                                 sashwidth=8, sashrelief="raised",
+                                 bg="#cbd5e1", handlesize=0)
+        # (se hace pack al final, después de los botones fijos)
+
         # ── Tabla ventas ──────────────────────────────────────────────────
-        top = ctk.CTkFrame(self, fg_color=WHITE, corner_radius=10,
+        top = ctk.CTkFrame(self.pw, fg_color=WHITE, corner_radius=10,
                            border_width=1, border_color=BORDER)
-        top.pack(fill="x", pady=(0, 12))
         ctk.CTkFrame(top, height=4, corner_radius=0, fg_color=NAVY).pack(fill="x")
+        self.pw.add(top, minsize=120, height=240)
 
         self.tree = ttk.Treeview(top,
             columns=("ID", "Fecha", "Total", "Descuento", "Productos"),
@@ -75,14 +98,14 @@ class HistorialFrame(ctk.CTkFrame):
             self.tree.heading(col, text=col)
             self.tree.column(col, width=w, anchor=anchor)
         self.tree.tag_configure("anulada", foreground="#9ca3af")
-        self.tree.pack(fill="x", padx=1, pady=1)
+        self.tree.pack(fill="both", expand=True, padx=1, pady=1)
         self.tree.bind("<<TreeviewSelect>>", self.mostrar_detalle)
 
         # ── Detalle venta ─────────────────────────────────────────────────
-        det = ctk.CTkFrame(self, fg_color=WHITE, corner_radius=10,
+        det = ctk.CTkFrame(self.pw, fg_color=WHITE, corner_radius=10,
                            border_width=1, border_color=BORDER)
-        det.pack(fill="both", expand=True)
         ctk.CTkFrame(det, height=4, corner_radius=0, fg_color=ORANGE).pack(fill="x")
+        self.pw.add(det, minsize=140)
         ctk.CTkLabel(det, text="Detalle de la venta seleccionada",
                      font=ctk.CTkFont(size=13, weight="bold"),
                      text_color=NAVY).pack(anchor="w", padx=12, pady=(8, 4))
@@ -99,9 +122,11 @@ class HistorialFrame(ctk.CTkFrame):
         self.det_tree.tag_configure("con_descuento", foreground="#dc2626")
         self.det_tree.pack(fill="both", expand=True, padx=1, pady=(0, 1))
 
-        # ── Botón Imprimir Factura ─────────────────────────────────────────
-        btn_bar = ctk.CTkFrame(det, fg_color="transparent")
-        btn_bar.pack(fill="x", padx=12, pady=(4, 8))
+        # ── Botones FIJOS abajo (fuera del panel divisible) ────────────────
+        btn_bar = ctk.CTkFrame(self, fg_color="transparent")
+        btn_bar.pack(side="bottom", fill="x", padx=4, pady=(6, 4))
+        # El panel divisible ocupa el resto del espacio
+        self.pw.pack(side="top", fill="both", expand=True)
         ctk.CTkButton(btn_bar,
                       text="🖨️  Imprimir Factura",
                       height=34, fg_color=ORANGE, hover_color="#ea6c0a",
@@ -166,6 +191,7 @@ class HistorialFrame(ctk.CTkFrame):
     # ── Refresh y detalle ─────────────────────────────────────────────────────
     def refresh(self):
         fecha = self._fecha_sel.strftime("%Y-%m-%d")
+        buscar = self.buscar_var.get().strip().lower() if hasattr(self, "buscar_var") else ""
         self.tree.delete(*self.tree.get_children())
 
         normales = [
@@ -181,7 +207,12 @@ class HistorialFrame(ctk.CTkFrame):
             for v in get_ventas_anuladas_hoy(fecha)
         ]
 
-        for vid, fecha_v, total, desc, resumen, anulada in sorted(normales + anuladas, key=lambda x: x[0], reverse=True):
+        filas = sorted(normales + anuladas, key=lambda x: x[0], reverse=True)
+        # Filtrar por nombre de producto vendido
+        if buscar:
+            filas = [f for f in filas if buscar in f[4].lower()]
+
+        for vid, fecha_v, total, desc, resumen, anulada in filas:
             self.tree.insert("", "end", iid=vid, values=(vid, fecha_v, total, desc, resumen),
                              tags=("anulada",) if anulada else ())
 

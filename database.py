@@ -200,9 +200,18 @@ def registrar_venta(fecha, total, items, descuento=0.0):
                 s.get(Producto, it["producto_id"]).stock -= it["cantidad"]
         s.commit()
 
-def get_ventas():
+def get_ventas(buscar=""):
     with get_session() as s:
-        ventas = s.query(Venta).order_by(Venta.id.desc()).limit(100).all()
+        q = s.query(Venta)
+        if buscar:
+            # Ventas que contengan un producto cuyo nombre coincida
+            sub = (s.query(DetalleVenta.venta_id)
+                     .outerjoin(Producto, DetalleVenta.producto_id == Producto.id)
+                     .filter(DetalleVenta.nombre_venta.ilike(f"%{buscar}%") |
+                             Producto.nombre.ilike(f"%{buscar}%"))
+                     .subquery())
+            q = q.filter(Venta.id.in_(sub))
+        ventas = q.order_by(Venta.id.desc()).limit(100).all()
         result = []
         for v in ventas:
             detalles = (s.query(DetalleVenta, Producto)
@@ -320,6 +329,17 @@ def get_observaciones_hoy(fecha_prefix):
         rows = (s.query(Observacion)
                   .filter(Observacion.fecha.like(f"{fecha_prefix}%"))
                   .order_by(Observacion.id.desc()).all())
+        return [{"id": o.id, "fecha": o.fecha,
+                 "monto": o.monto, "concepto": o.concepto}
+                for o in rows]
+
+def get_observaciones_todas(buscar=""):
+    """Todas las observaciones (gastos), opcionalmente filtradas por concepto."""
+    with get_session() as s:
+        q = s.query(Observacion)
+        if buscar:
+            q = q.filter(Observacion.concepto.ilike(f"%{buscar}%"))
+        rows = q.order_by(Observacion.fecha.desc()).all()
         return [{"id": o.id, "fecha": o.fecha,
                  "monto": o.monto, "concepto": o.concepto}
                 for o in rows]
