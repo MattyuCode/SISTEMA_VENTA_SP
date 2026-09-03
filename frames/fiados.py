@@ -154,6 +154,7 @@ class FiadosFrame(ctk.CTkFrame):
     def _set_filtro(self, nuevo):
         self.filtro = nuevo
         self._actualizar_botones_filtro()
+        self._actualizar_columnas()
         self.refresh()
 
     def _actualizar_botones_filtro(self):
@@ -193,11 +194,15 @@ class FiadosFrame(ctk.CTkFrame):
         tabla.pack(fill="both", expand=True)
         ctk.CTkFrame(tabla, height=4, corner_radius=0, fg_color=NAVY).pack(fill="x")
 
-        cols = ("ID","Fecha","Cliente","Productos","Items","Total","Días","Estado")
+        cols = ("ID","Fecha","Cliente","Productos","Items","Total","Días","Fecha Pago","Estado")
+        self._anchos_base = {"ID": 30, "Fecha": 80, "Cliente": 140, "Productos": 280,
+                              "Items": 50, "Total": 65, "Días": 45,
+                              "Fecha Pago": 110, "Estado": 130}
         self.tree = ttk.Treeview(tabla, columns=cols, show="headings", height=10)
-        for col, w in zip(cols, [40, 110, 140, 280, 50, 80, 60, 110]):
+        for col in cols:
             self.tree.heading(col, text=col)
-            self.tree.column(col, width=w, anchor="center")
+            self.tree.column(col, width=self._anchos_base[col], anchor="center",
+                              stretch=True)
         self.tree.tag_configure("vencido",  foreground="#b91c1c")
         self.tree.tag_configure("reciente", foreground="#166534")
         self.tree.tag_configure("pagado",   foreground="#6b7280")
@@ -207,6 +212,29 @@ class FiadosFrame(ctk.CTkFrame):
         self.tree.pack(side="left", fill="both", expand=True, padx=1, pady=1)
         sb.pack(side="right", fill="y")
         self.tree.bind("<Double-1>", lambda e: self.ver_detalle())
+        self.tree.bind("<Configure>", self._ajustar_anchos)
+        self._actualizar_columnas()
+
+    def _actualizar_columnas(self):
+        cols = [c for c in self.tree["columns"] if c != "ID"]
+        if self.filtro != "pagado":
+            cols = [c for c in cols if c != "Fecha Pago"]
+        self.tree["displaycolumns"] = cols
+        self._ajustar_anchos()
+
+    def _ajustar_anchos(self, event=None):
+        visibles = self.tree["displaycolumns"]
+        if visibles == "#all":
+            visibles = list(self.tree["columns"])
+        if not visibles:
+            return
+        total_base = sum(self._anchos_base[c] for c in visibles)
+        disponible = self.tree.winfo_width()
+        if disponible <= 1 or total_base == 0:
+            return
+        factor = disponible / total_base
+        for c in visibles:
+            self.tree.column(c, width=max(30, int(self._anchos_base[c] * factor)))
 
     # ── Lógica del formulario ─────────────────────────────────────────────────
     def agregar_item(self):
@@ -273,11 +301,13 @@ class FiadosFrame(ctk.CTkFrame):
         for f in filas:
             fecha_reg = datetime.strptime(f["fecha"], "%Y-%m-%d %H:%M:%S")
             dias = (ahora - fecha_reg).days
+            fecha_pago_txt = "—"
             if f["estado"] == "pagado":
                 if f["fecha_pago"]:
                     fpago = datetime.strptime(f["fecha_pago"], "%Y-%m-%d %H:%M:%S")
                     dias_pag = (ahora - fpago).days
                     estado_txt = f"✅ Pagado hace {dias_pag}d"
+                    fecha_pago_txt = fpago.strftime("%d/%m %H:%M")
                 else:
                     estado_txt = "✅ Pagado"
                 tag = "pagado"
@@ -297,6 +327,7 @@ class FiadosFrame(ctk.CTkFrame):
                 f["num_items"],
                 f"Q{f['total']:.2f}",
                 f"{dias}d",
+                fecha_pago_txt,
                 estado_txt
             ), tags=(tag,))
 
@@ -316,7 +347,7 @@ class FiadosFrame(ctk.CTkFrame):
         fid = self._sel()
         if fid is None: return
         vals = self.tree.item(fid, "values")
-        if "Pagado" in vals[7]:
+        if "Pagado" in vals[8]:
             messagebox.showinfo("Aviso", "Esta deuda ya está pagada."); return
         if messagebox.askyesno("Confirmar pago",
                 f"¿Confirmar pago de {vals[2]}?\n\n"

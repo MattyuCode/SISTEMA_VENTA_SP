@@ -38,7 +38,7 @@ class LibreriaApp(ctk.CTk):
         self.title("Sistema de Librería - SOLUCIONES PLUS")
         #self.iconbitmap("icono.ico")
         self.iconbitmap(recurso("imagenes/icono.ico"))
-        self.geometry("1400x730")
+        self.geometry("1450x730")
         self.resizable(True, True)
         self.configure(fg_color=GRAY_BG)
         self.after(10, self._dark_titlebar)
